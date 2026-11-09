@@ -1,0 +1,142 @@
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-a */
+:root{--petrol:#005f6a;--petrol-d:#00464f;--petrol-l:#e3f1f3;--ink:#293133;--mut:#5b6669;--bg:#f0f4f5;--card:#fff;--line:#d3dcde;--ok:#1f7a4d;--err:#b3261e}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+main{flex:1;width:100%;max-width:1100px;margin:0 auto;padding:1.25rem}
+a{color:var(--petrol)}
+h2{font-size:1.65rem;margin:.4rem 0 .9rem;line-height:1.2}h3{margin:1.4rem 0 .5rem}h4{margin:.2rem 0 .5rem}
+.skip{position:absolute;left:-999px;top:0;background:#fff;color:var(--ink);padding:.5rem 1rem;z-index:100}.skip:focus{left:0}
+
+/* Header (petrol) */
+.top{background:var(--petrol);color:#fff}
+.top-in{max-width:1100px;margin:0 auto;padding:.7rem 1.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.2rem}
+.top a{color:#fff;text-decoration:none}
+.brand{display:flex;align-items:center;gap:.8rem;font-size:1.15rem;min-width:0}
+.brand strong{overflow-wrap:anywhere}
+.logo{max-height:100px;max-width:500px;width:auto;height:auto;object-fit:contain;flex:none;background:#fff;border-radius:6px;padding:3px}
+.rings{width:38px;height:38px;border-radius:50%;flex:none;background:radial-gradient(circle,#f4c430 0 18%,#c63a2f 18% 38%,#2c7fb8 38% 62%,#111 62% 80%,#fff 80%)}
+.topnav{display:flex;flex-wrap:wrap;gap:.3rem 1rem;align-items:center}
+.topnav a{padding:.25rem 0;border-bottom:2px solid transparent}.topnav a:hover{border-bottom-color:#fff}
+.lang{margin-left:auto;display:flex;gap:.45rem;align-items:center}
+.lang a{display:inline-flex;padding:3px;border:2px solid transparent;border-radius:5px;line-height:0;opacity:.8}
+.lang a:hover,.lang a.on{opacity:1;border-color:#fff}
+.flag{display:block;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+
+/* Karten und Formulare */
+.box,.ses{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem;margin:1rem 0}
+.box.ok{border-left:6px solid var(--ok)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem 1.2rem;align-items:start;margin-top:.6rem}
+.stack{display:grid;gap:.9rem;max-width:420px}
+.grid>*,.stack>*{min-width:0}
+label{display:grid;gap:.25rem;font-size:.9rem;color:var(--mut);align-content:start}
+input,select,textarea,button{font:inherit;color:var(--ink);padding:.55rem .7rem;border:1px solid #a9b6b9;border-radius:6px;background:#fff;min-height:2.75rem}
+label>input:not([type=checkbox]):not([type=radio]),label>select,label>textarea,.grid>input,.stack input,textarea{width:100%}
+textarea{resize:vertical}
+input[type=checkbox],input[type=radio]{min-height:0;width:1.15rem;height:1.15rem;padding:0;accent-color:var(--petrol);flex:none;margin-top:.2rem}
+button,.btn{background:var(--petrol);color:#fff;border-color:var(--petrol);cursor:pointer;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;padding:.6rem 1.2rem;border-radius:6px}
+button:hover,.btn:hover{background:var(--petrol-d);border-color:var(--petrol-d)}
+button.sm{padding:.2rem .6rem;font-size:.85rem;min-height:2rem}
+button.dng,.dng{background:var(--err);border-color:var(--err);color:#fff}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.ghost,.btn.ghost{background:#fff;color:var(--petrol)}
+:focus-visible{outline:3px solid #2aa5b4;outline-offset:2px}
+.wide{grid-column:1/-1}
+.chk{display:flex;gap:.55rem;align-items:flex-start;color:var(--ink);font-size:.95rem}
+.hp{position:absolute;left:-9999px}
+.checks{display:flex;flex-wrap:wrap;gap:.6rem 2rem;align-items:center}
+.divs{display:flex;flex-wrap:wrap;gap:.2rem .9rem}
+td .divs{min-width:200px}
+fieldset{border:1px solid var(--line);border-radius:8px;padding:.8rem 1rem;display:grid;gap:.6rem;margin:0}
+legend{font-weight:700;padding:0 .4rem}
+.msg{padding:.7rem 1rem;border-radius:6px;margin:.6rem 0}.msg.ok{background:#dcf1e6}.msg.err{background:#fbe3e0}
+.empty,.info{color:var(--mut)}
+.kv{display:flex;flex-direction:column;gap:.1rem;margin:.6rem 0}
+.kv>span{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+form.inl{display:inline}
+
+/* Anmeldeformular: Abschnitte */
+.reg{display:grid;gap:1rem;margin-top:1rem}
+.sec{background:#fff;border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem}
+.sec>h3{display:flex;align-items:center;gap:.7rem;margin:0 0 .3rem;font-size:1.1rem}
+.num{display:inline-flex;align-items:center;justify-content:center;width:1.9rem;height:1.9rem;border-radius:50%;background:var(--petrol);color:#fff;font-size:.95rem;font-weight:700;flex:none}
+.hint{margin:.2rem 0 0;color:var(--mut);font-size:.88rem}
+.hint.ok{color:var(--ok)}
+.regbox{border-top:4px solid var(--petrol)}
+details.regbox>summary{cursor:pointer;font-weight:700;font-size:1.2rem;color:var(--petrol)}
+.submit{width:100%;font-size:1.05rem;padding:.8rem}
+
+/* Tabellen, Listen */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;white-space:nowrap}
+.tag{font-size:.78rem;font-weight:600;padding:.1rem .55rem;border-radius:99px;background:#e3eaeb;color:var(--mut);white-space:nowrap}
+.tag.paid{background:#d9f0e4;color:var(--ok)}.tag.open{background:#fbe3e0;color:var(--err)}
+.big{font-size:1.2rem;font-weight:600}
+code{background:#e8eff0;padding:.1rem .3rem;border-radius:4px;font-size:.9em;overflow-wrap:anywhere}
+
+/* Turnierdaten */
+.evhead{display:flex;gap:1.5rem;align-items:flex-start;justify-content:space-between;background:#fff;border:1px solid var(--line);border-left:6px solid var(--petrol);border-radius:10px;padding:.9rem 1.2rem;margin:.2rem 0 1rem}
+.evhead h2{margin:.1rem 0 .6rem}
+.evbody{flex:1;min-width:0}
+.evhead dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.8rem 1.5rem;margin:0}
+.evhead dl>div{display:flex;flex-direction:column;gap:.1rem}
+.evhead dt{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+.evhead dd{margin:0;overflow-wrap:anywhere}
+.evlogo{max-height:120px;max-width:200px;width:auto;height:auto;object-fit:contain;flex:none}
+
+/* Footer (petrol) */
+.foot{background:var(--petrol);color:#e6f3f5;margin-top:2.5rem;font-size:.92rem}
+.foot-in{max-width:1100px;margin:0 auto;padding:1.2rem 1.25rem;display:flex;flex-wrap:wrap;gap:1rem 2rem;justify-content:space-between}
+.foot-l,.foot-r{display:flex;flex-direction:column;gap:.6rem;min-width:0}
+.foot-r{align-items:flex-end;text-align:right;max-width:520px}
+.foot-r p{margin:0}.foot .tm{font-size:.75rem;opacity:.85}
+.foot-nav{display:flex;flex-wrap:wrap;gap:.3rem 1.2rem}
+.foot a{color:#fff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.45)}
+.foot a:hover{border-bottom-color:#fff}
+.lic-logos{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.foot a.gplink{border:0;background:#fff;border-radius:6px;padding:4px 8px;display:inline-flex;align-items:center}
+.foot img{display:block;height:36px;width:auto}
+.gpl{font-weight:700;color:var(--petrol);font-size:.9rem;padding:.3rem .2rem}
+
+/* Cookie-Banner */
+.cookiebar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:#fff;color:var(--ink);border-top:4px solid var(--petrol);box-shadow:0 -6px 24px rgba(0,0,0,.18)}
+.cookiebar[hidden]{display:none}
+.cookiebar-in{max-width:1100px;margin:0 auto;padding:1rem 1.25rem;display:flex;gap:1rem 2rem;align-items:center;justify-content:space-between;flex-wrap:wrap;max-height:80vh;overflow:auto}
+.cb-text{flex:1;min-width:260px}.cb-text p{margin:.3rem 0}
+.cb-text summary{cursor:pointer;color:var(--petrol);font-weight:600}
+.cb-btns{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+
+/* Installations-Assistent */
+.wiz{max-width:760px;margin:0 auto}
+.steps{display:flex;gap:.4rem;list-style:none;padding:0;margin:0 0 1.2rem;flex-wrap:wrap}
+.steps li{flex:1;min-width:120px;text-align:center;padding:.6rem .4rem;border-radius:8px;background:#e3eaeb;color:var(--mut);font-size:.85rem;font-weight:600}
+.steps li.on{background:var(--petrol);color:#fff}.steps li.done{background:#d9f0e4;color:var(--ok)}
+.chkl{list-style:none;padding:0;margin:.6rem 0;display:grid;gap:.4rem}
+.chkl li{display:flex;gap:.6rem;align-items:flex-start;padding:.5rem .7rem;border-radius:6px;background:#f4f8f9}
+.chkl .y{color:var(--ok);font-weight:700}.chkl .n{color:var(--err);font-weight:700}.chkl .w{color:#8a6d00;font-weight:700}
+
+/* Responsive */
+@media(max-width:800px){.two{grid-template-columns:1fr}.foot-r{align-items:flex-start;text-align:left}.lic-logos{justify-content:flex-start}}
+@media(max-width:700px){
+  main{padding:.9rem}
+  h2{font-size:1.4rem}
+  .evhead{flex-direction:column-reverse;gap:.8rem}
+  .top-in{padding:.6rem .9rem}
+  .brand{font-size:1rem}.logo{max-height:70px;max-width:60vw}
+  .grid{grid-template-columns:1fr}
+  .box,.ses,.sec{padding:.9rem}
+  .stack{max-width:none}
+  button,.btn{width:100%}
+  button.sm{width:auto}
+  .cb-btns button{width:auto}
+  th,td{padding:.35rem .4rem}
+}
+@media print{.top,.foot,.cookiebar,.skip{display:none}}
+
+.foot .ver{font-size:.78rem;opacity:.85}
+
+.licbox{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;padding:.8rem;margin:.6rem 0}
+.licbox pre{white-space:pre-wrap;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}

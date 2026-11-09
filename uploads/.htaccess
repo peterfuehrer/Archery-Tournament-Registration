@@ -1,0 +1,5 @@
+# Uploads dürfen nur angezeigt, nie ausgeführt werden
+Options -Indexes -ExecCGI
+<FilesMatch "\.(php|phtml|phar|pl|py|cgi|sh)$">
+    Require all denied
+</FilesMatch>

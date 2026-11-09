@@ -1,0 +1,13 @@
+# Schutz der Konfiguration und interner Dateien (Apache). Turnier-Anmeldeplattform – GNU AGPLv3
+Options -Indexes
+<IfModule mod_authz_core.c>
+    <FilesMatch "^(config|config\.sample|lib|lang_en)\.php$|^(LICENSE|README\.txt)$|\.(sql|bak|log|inc|ini)$">
+        Require all denied
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <FilesMatch "^(config|config\.sample|lib|lang_en)\.php$|^(LICENSE|README\.txt)$|\.(sql|bak|log|inc|ini)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</IfModule>
