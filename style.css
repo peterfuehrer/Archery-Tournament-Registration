@@ -1,4 +1,4 @@
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
 :root{--petrol:#005f6a;--petrol-d:#00464f;--petrol-l:#e3f1f3;--ink:#293133;--mut:#5b6669;--bg:#f0f4f5;--card:#fff;--line:#d3dcde;--ok:#1f7a4d;--err:#b3261e}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -140,3 +140,66 @@ code{background:#e8eff0;padding:.1rem .3rem;border-radius:4px;font-size:.9em;ove
 
 .licbox{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;padding:.8rem;margin:.6rem 0}
 .licbox pre{white-space:pre-wrap;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}
+
+/* ===== Politur ===== */
+::selection{background:#bfe3e8;color:#14393f}
+html{scroll-behavior:smooth}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+body{background:linear-gradient(#e6eff1 0,#f0f4f5 280px)}
+.top{box-shadow:0 2px 10px rgba(0,40,46,.25)}
+.topnav a{font-weight:500;transition:border-color .15s}
+.topnav a.on{border-bottom-color:#fff;font-weight:700}
+h2{letter-spacing:-.01em}
+h2::after{content:"";display:block;width:56px;height:4px;border-radius:2px;background:var(--petrol);margin-top:.45rem}
+.evhead h2::after,.box h2::after,.wiz h2::after{display:none}
+h3{font-size:1.1rem;color:var(--ink)}
+.box,.sec,.ses,.evhead{border-radius:12px;box-shadow:0 1px 2px rgba(0,40,46,.05),0 8px 22px rgba(0,60,70,.07)}
+.box,.sec,.ses{transition:box-shadow .2s}
+.ses>h3{padding-bottom:.5rem;border-bottom:1px solid var(--line);margin-bottom:.8rem}
+.evhead{background:linear-gradient(135deg,#fff 60%,var(--petrol-l))}
+/* Formularfelder */
+input,select,textarea{border-color:#b7c4c7;transition:border-color .15s,box-shadow .15s}
+input:hover,select:hover,textarea:hover{border-color:#8aa0a4}
+input:focus,select:focus,textarea:focus{border-color:var(--petrol);box-shadow:0 0 0 3px rgba(0,95,106,.18);outline:none}
+::placeholder{color:#8b999c}
+label{font-weight:500}
+.chk{font-weight:400}
+/* Buttons */
+button,.btn{box-shadow:0 1px 2px rgba(0,40,46,.25);transition:background .15s,transform .05s,box-shadow .15s;letter-spacing:.01em}
+button:hover,.btn:hover{box-shadow:0 3px 8px rgba(0,60,70,.3)}
+button:active,.btn:active{transform:translateY(1px);box-shadow:none}
+button.ghost,.btn.ghost{box-shadow:none;border-color:var(--petrol)}
+button.ghost:hover{background:var(--petrol-l)}
+button.dng:hover{background:#8e1d17;border-color:#8e1d17}
+/* Tabellen */
+thead th{position:sticky;top:0;background:#f4f8f9;z-index:1;text-transform:uppercase;font-size:.72rem;letter-spacing:.05em}
+tbody tr:nth-child(even){background:#f8fbfb}
+tbody tr:hover{background:#eaf4f6}
+td small{color:var(--mut)}
+/* Hinweise und Tags */
+.msg{border-left:5px solid transparent;padding-left:1rem}
+.msg.ok{border-left-color:var(--ok)}.msg.err{border-left-color:var(--err)}
+.msg.ok::before{content:"✓ ";font-weight:700;color:var(--ok)}.msg.err::before{content:"! ";font-weight:700;color:var(--err)}
+.tag{letter-spacing:.01em}
+/* Aufklappbare Einstellungs-Abschnitte */
+details.sect{background:#fff;border:1px solid var(--line);border-radius:12px;margin:.9rem 0;box-shadow:0 1px 2px rgba(0,40,46,.05),0 8px 22px rgba(0,60,70,.06);overflow:hidden}
+details.sect>summary{cursor:pointer;list-style:none;padding:.85rem 1.2rem;font-weight:700;font-size:1.05rem;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(#fff,#f3f8f9)}
+details.sect>summary::-webkit-details-marker{display:none}
+details.sect>summary::after{content:"";width:.6rem;height:.6rem;border-right:2px solid var(--petrol);border-bottom:2px solid var(--petrol);transform:rotate(45deg);transition:transform .2s;margin-right:.3rem}
+details.sect[open]>summary{border-bottom:1px solid var(--line)}
+details.sect[open]>summary::after{transform:rotate(-135deg)}
+details.sect>summary:hover{background:var(--petrol-l)}
+.sect-body{padding:.2rem 1.2rem 1.2rem}
+.sect-body>.box{box-shadow:none;border-radius:10px}
+/* Anmeldeformular */
+.regbox{border-top:5px solid var(--petrol)}
+.sec>h3{padding-bottom:.55rem;border-bottom:1px solid var(--line);margin-bottom:.7rem}
+.submit{box-shadow:0 4px 14px rgba(0,95,106,.35)}
+/* Footer */
+.foot{box-shadow:0 -2px 10px rgba(0,40,46,.15)}
+.foot-in{padding:1.4rem 1.25rem}
+.foot a{transition:border-color .15s}
+/* Karten-Überschriften im Backend */
+.box>h4{margin-top:0}
+.box>p:first-child{margin-top:0}
+@media(max-width:700px){details.sect>summary{padding:.8rem 1rem}.sect-body{padding:.1rem .9rem 1rem}h2::after{width:44px}}

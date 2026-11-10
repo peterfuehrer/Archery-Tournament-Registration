@@ -1,6 +1,6 @@
 <?php
 /*
- * Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – Version 2026.11.08-a
+ * Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – Version 2026.11.08-d
  *
  * This program is free software: you can redistribute it and/or modify it under the terms of the
  * GNU Affero General Public License as published by the Free Software Foundation, either version 3
@@ -10,7 +10,7 @@
  */
 declare(strict_types=1);
 // Copyright (C) 2026 Peter Führer – nur als Vermerk im Quelltext, wird nicht auf den Seiten angezeigt.
-const APP_VERSION = '2026.11.08-a';
+const APP_VERSION = '2026.11.08-d';
 // Konfiguration (enthält die Datenbank-Zugangsdaten): bevorzugt außerhalb des Web-Ordners, sonst config.php im Plattform-Ordner
 function config_file(): ?string {
     foreach ([(string)getenv('ANMELDUNG_CONFIG'), dirname(__DIR__) . '/anmeldung-config-' . substr(md5(__DIR__), 0, 8) . '.php', __DIR__ . '/config.php'] as $p)
@@ -86,7 +86,7 @@ function fmt_date($d): string {
 
 // ---- Schema (Updates laufen automatisch) -----------------------------------
 function ensure_schema(): void {
-    if (($_SESSION['schema_v'] ?? 0) === 10) return;
+    if (($_SESSION['schema_v'] ?? 0) === 13) return;
     try {
         $db = db();
         $db->exec("CREATE TABLE IF NOT EXISTS reg_settings (k VARCHAR(40) PRIMARY KEY, v TEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -94,6 +94,7 @@ function ensure_schema(): void {
         if ($t && stripos($t['Type'], 'text') === false) $db->exec("ALTER TABLE reg_settings MODIFY v TEXT NOT NULL");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_ratelimit (k VARCHAR(40) NOT NULL, ts INT NOT NULL, KEY kt (k, ts)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_api_cache (k VARCHAR(40) PRIMARY KEY, data TEXT NOT NULL, ts INT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $db->exec("CREATE TABLE IF NOT EXISTS reg_log (id INT AUTO_INCREMENT PRIMARY KEY, ts DATETIME NOT NULL, event_id INT NULL, entry_id INT NULL, user_id INT NULL, actor VARCHAR(80) NOT NULL DEFAULT '', action VARCHAR(30) NOT NULL, details VARCHAR(500) NOT NULL DEFAULT '', KEY ev (event_id, ts), KEY ts (ts)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_clubs (code VARCHAR(20) PRIMARY KEY, name VARCHAR(150) NOT NULL, state_code VARCHAR(10) NOT NULL DEFAULT '', state VARCHAR(60) NOT NULL DEFAULT '', KEY nm (name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_athletes (license VARCHAR(25) PRIMARY KEY, lastname VARCHAR(60) NOT NULL, firstname VARCHAR(60) NOT NULL, club_code VARCHAR(20) NOT NULL DEFAULT '', KEY nm (lastname, firstname)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_event_users (event_id INT NOT NULL, user_id INT NOT NULL, PRIMARY KEY (event_id,user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -107,10 +108,12 @@ function ensure_schema(): void {
             ['reg_events', 'doc', "VARCHAR(120) NOT NULL DEFAULT ''"],
             ['reg_events', 'doc_url', "VARCHAR(300) NOT NULL DEFAULT ''"],
             ['reg_events', 'logo', "VARCHAR(120) NOT NULL DEFAULT ''"],
+            ['reg_athletes', 'sex', "TINYINT NULL"],
             ['reg_sessions', 'closed', "TINYINT NOT NULL DEFAULT 0"],
             ['reg_sessions', 'deadline', "DATE NULL"],
             ['reg_entries', 'consent_at', "DATETIME NULL"],
             ['reg_entries', 'consent_media', "TINYINT NOT NULL DEFAULT 0"],
+            ['reg_events', 'mail_tpl', "TEXT NULL"],
             ['reg_events', 'paypal_me', "VARCHAR(80) NOT NULL DEFAULT ''"],
             ['reg_events', 'fee', "VARCHAR(12) NOT NULL DEFAULT ''"],
             ['reg_entries', 'country', "VARCHAR(3) NOT NULL DEFAULT ''"],
@@ -133,7 +136,7 @@ function ensure_schema(): void {
         $c = $db->query("SHOW COLUMNS FROM reg_entries LIKE 'dob'")->fetch();   // Geburtsdatum optional -> NULL statt Nulldatum
         if ($c && $c['Null'] === 'NO') $db->exec("ALTER TABLE reg_entries MODIFY dob DATE NULL");
         $db->exec("UPDATE reg_entries SET dob=NULL WHERE dob='0000-00-00'");
-        $_SESSION['schema_v'] = 10;
+        $_SESSION['schema_v'] = 13;
     } catch (Throwable $x) { error_log('[anmeldung] Schema: ' . $x->getMessage()); }
 }
 function setting(string $k): string {
@@ -342,6 +345,18 @@ function qual_text(array $r): string {
     return '';
 }
 
+// ---- Protokoll der Anmeldungen (Backend -> Protokoll) -------------------------------------------------
+const LOG_ACTIONS = ['anmeldung' => 'Neue Anmeldung', 'bezahlt' => 'Als bezahlt markiert', 'zurueck' => 'Zahlung zurückgesetzt', 'bearbeitet' => 'Anmeldung bearbeitet', 'verschoben' => 'Durchgang gewechselt',
+    'geloescht' => 'Anmeldung gelöscht', 'import' => 'Import', 'ianseo_neu' => 'Nach ianseo übertragen', 'ianseo_entfernt' => 'Aus ianseo entfernt', 'abgleich' => 'Lizenzabgleich',
+    'turnier_auf' => 'Turnier geöffnet', 'turnier_zu' => 'Turnier geschlossen', 'durchgang_auf' => 'Durchgang geöffnet', 'durchgang_zu' => 'Durchgang geschlossen', 'turnier_geloescht' => 'Turnier entfernt'];
+function log_event(string $action, ?int $eventId = null, ?int $entryId = null, string $details = '', ?string $actor = null): void {
+    try {
+        q("INSERT INTO reg_log (ts,event_id,entry_id,user_id,actor,action,details) VALUES (?,?,?,?,?,?,?)",
+          [date('Y-m-d H:i:s'), $eventId, $entryId, uid() ?: null, mb_substr($actor ?? (uid() ? (string)($_SESSION['un'] ?? '') : 'Teilnehmer/in'), 0, 80), $action, mb_substr($details, 0, 500)]);
+        if (mt_rand(1, 100) === 1) q("DELETE FROM reg_log WHERE ts < ?", [date('Y-m-d H:i:s', time() - 730 * 86400)]);      // Aufbewahrung höchstens 24 Monate
+    } catch (Throwable $x) { error_log('[anmeldung] Protokoll: ' . $x->getMessage()); }
+}
+
 // ---- Mail-Konfiguration aus den Einstellungen (Passwörter verschlüsselt in der DB) ------------------
 function secret_key(): string { global $CFG; return hash('sha256', ($CFG['secret'] ?? '') . '|' . ($CFG['db']['pass'] ?? '') . '|reg', true); }
 function enc(string $s): string {
@@ -459,6 +474,42 @@ function session_is_open(array $ev, array $s): bool {
     return empty($s['deadline']) || $s['deadline'] >= date('Y-m-d');
 }
 
+// ---- E-Mail-Texte je Turnier (Platzhalter in {geschweiften Klammern}) ---------------------------------
+function mail_vars(array $ev, array $e, array $s, string $ref, string $lang): array {
+    $o = owner_of($ev);
+    return ['vorname' => (string)$e['firstname'], 'nachname' => (string)$e['lastname'], 'name' => $e['firstname'] . ' ' . $e['lastname'], 'turnier' => (string)$ev['title'],
+        'durchgang' => (string)(($s['name'] ?? '') !== '' ? $s['name'] : tl($lang, 'Durchgang') . ' ' . ($s['no'] ?? '')), 'ref' => $ref, 'verwendungszweck' => purpose_text($ev, $e, $ref),
+        'zahlungsinfo' => (string)($ev['pay_info'] ?? ''), 'paypal' => paypal_url($ev), 'verein' => (string)($e['club'] ?? ''), 'lizenz' => (string)($e['license'] ?? ''),
+        'bogenklasse' => (string)($e['division'] ?? ''), 'altersklasse' => (string)($e['class'] ?? ''), 'anmeldeschluss' => fmt_date($ev['deadline'] ?? ''),
+        'organisation' => $o ? trim(($o['fullname'] !== '' ? $o['fullname'] : $o['username']) . ($o['email'] !== '' ? ' <' . $o['email'] . '>' : '')) : ''];
+}
+// Eigener Text des Turniers (Sprache des Teilnehmers, sonst die andere Sprache); null = Standardtext
+function mail_tpl(array $ev, string $kind, string $lang, array $vars): ?array {
+    $t = json_decode((string)($ev['mail_tpl'] ?? ''), true);
+    if (!is_array($t) || empty($t[$kind])) return null;
+    $map = []; foreach ($vars as $k => $v) $map['{' . $k . '}'] = (string)$v;
+    foreach ([$lang, $lang === 'en' ? 'de' : 'en'] as $l) {
+        $b = trim((string)($t[$kind][$l]['b'] ?? ''));
+        if ($b !== '') return [strtr(trim((string)($t[$kind][$l]['s'] ?? '')), $map), strtr($b, $map)];
+    }
+    return null;
+}
+// Betreff und Text: eigener Turnier-Text oder Standardtext. $kind: 'reg' = Anmeldung eingegangen, 'ok' = Startplatz bestätigt
+function mail_render(array $ev, string $kind, string $lang, array $v): array {
+    $custom = mail_tpl($ev, $kind, $lang, $v);
+    if ($kind === 'reg') {
+        $subj = tl($lang, 'Anmeldung eingegangen: %s', $ev['title']);
+        $body = tl($lang, 'Hallo %s,', $v['vorname']) . "\n\n" . tl($lang, 'deine Anmeldung zu „%s“ ist eingegangen. Du stehst auf der Warteliste, bis die Zahlung verbucht ist.', $ev['title']) . "\n\n"
+              . tl($lang, 'Verwendungszweck: %s', $v['verwendungszweck']) . "\n\n" . ($v['zahlungsinfo'] !== '' ? $v['zahlungsinfo'] . "\n\n" : '')
+              . ($v['paypal'] !== '' ? tl($lang, 'Alternativ per PayPal: %s', $v['paypal']) . "\n\n" : '') . tl($lang, 'Sobald die Zahlung verbucht ist, bekommst du eine Bestätigung.');
+    } else {
+        $subj = tl($lang, 'Startplatz bestätigt: %s', $ev['title']);
+        $body = tl($lang, 'Hallo %s,', $v['vorname']) . "\n\n" . tl($lang, 'deine Zahlung ist verbucht. Du stehst in der Starterliste von „%s“ (%s).', $ev['title'], $v['durchgang'])
+              . "\n" . tl($lang, 'Referenz: %s', $v['ref']) . "\n\n" . tl($lang, 'Schöne Grüße') . "\n" . tl($lang, 'das Organisationsteam');
+    }
+    return [$custom !== null && $custom[0] !== '' ? $custom[0] : $subj, $custom !== null ? $custom[1] : $body];
+}
+
 // ---- Starter-/Warteliste ------------------------------------------------
 // Starter = bezahlt, in Zahlungsreihenfolge, bis zur Kapazität (0 = unbegrenzt).
 // Warteliste = bezahlt über Kapazität (zuerst), danach unbezahlt in Anmeldereihenfolge.
@@ -550,14 +601,14 @@ function sync_event(int $eid): array {
         foreach ($st as $e) if (!$e['en_id']) {
             try {
                 q("UPDATE reg_entries SET en_id=? WHERE id=?", [ianseo_add((int)$ev['to_id'], $e, (int)$s['no']), $e['id']]);
+                log_event('ianseo_neu', (int)$ev['id'], (int)$e['id'], $e['lastname'] . ' ' . $e['firstname'] . ', Durchgang ' . $s['no']);
                 $lg = $e['lang'] ?: 'de';
-                send_mail($e['email'], tl($lg, 'Startplatz bestätigt: %s', $ev['title']),
-                    tl($lg, 'Hallo %s,', $e['firstname']) . "\n\n" . tl($lg, 'deine Zahlung ist verbucht. Du stehst in der Starterliste von „%s“ (%s).', $ev['title'], $s['name'] ?: tl($lg, 'Durchgang') . ' ' . $s['no'])
-                    . "\n" . tl($lg, 'Referenz: %s', ref_code((int)$ev['id'], (int)$e['id'])) . "\n\n" . tl($lg, 'Schöne Grüße') . "\n" . tl($lg, 'das Organisationsteam'));
+                [$ms, $mb] = mail_render($ev, 'ok', $lg, mail_vars($ev, $e, $s, ref_code((int)$ev['id'], (int)$e['id']), $lg));
+                send_mail($e['email'], $ms, $mb);
             } catch (Throwable $x) { $msg[] = "{$e['lastname']} {$e['firstname']}: " . $x->getMessage(); }
         }
         foreach ($wl as $e) if ($e['en_id']) {
-            try { ianseo_remove((int)$ev['to_id'], (int)$e['en_id']); q("UPDATE reg_entries SET en_id=NULL WHERE id=?", [$e['id']]); }
+            try { ianseo_remove((int)$ev['to_id'], (int)$e['en_id']); q("UPDATE reg_entries SET en_id=NULL WHERE id=?", [$e['id']]); log_event('ianseo_entfernt', (int)$ev['id'], (int)$e['id'], $e['lastname'] . ' ' . $e['firstname']); }
             catch (Throwable $x) { $msg[] = "{$e['lastname']} {$e['firstname']}: " . $x->getMessage(); }
         }
     }
@@ -611,7 +662,7 @@ function import_table(string $table, array $fields, array $rows, bool $replace):
         db()->commit(); return $n;
     } catch (Throwable $x) { db()->rollBack(); throw $x; }
 }
-// Gemeinsame Stammdaten-CSV: Lizenznummer, Vorname, Nachname, Vereinsnummer, Vereinsname, Bundeslandkürzel, Bundeslandname
+// Gemeinsame Stammdaten-CSV: Lizenznummer, Vorname, Nachname, Vereinsnummer, Vereinsname, Bundeslandkürzel, Bundeslandname (+ optional Geschlecht)
 // Liefert [Anzahl Schützen, Anzahl Vereine]
 function import_master(string $path, bool $replace): array {
     $rows = csv_rows($path, [
@@ -619,6 +670,7 @@ function import_master(string $path, bool $replace): array {
         'firstname' => ['vorname', 'schutzenvorname', 'schuetzenvorname'],
         'lastname' => ['nachname', 'schutzennachname', 'schuetzennachname', 'familienname'],
         'club_code' => ['vereinsnummer', 'vereinsnr', 'vnr'],
+        'sex' => ['geschlecht', 'sex', 'gender'],
         'short' => ['vereinskurzel', 'vereinskuerzel', 'vereinsk'],
         'club' => ['vereinsname', 'verein'],
         'state_code' => ['bundeslandkurzel', 'bundeslandkuerzel', 'blkurzl', 'blkuerzl', 'blk'],
@@ -628,11 +680,11 @@ function import_master(string $path, bool $replace): array {
     foreach ($rows as $r) {
         if ($r['license'] === '' || $r['lastname'] === '') continue;
         $code = mb_substr($r['club_code'] ?? ($r['short'] ?? ''), 0, 20);         // ohne Spalte "Vereinsnummer": Kürzel als Code
-        $ath[] = ['license' => mb_substr($r['license'], 0, 25), 'lastname' => mb_substr($r['lastname'], 0, 60), 'firstname' => mb_substr($r['firstname'], 0, 60), 'club_code' => $code];
+        $ath[] = ['license' => mb_substr($r['license'], 0, 25), 'lastname' => mb_substr($r['lastname'], 0, 60), 'firstname' => mb_substr($r['firstname'], 0, 60), 'club_code' => $code, 'sex' => norm_sex($r['sex'] ?? '')];
         if ($code !== '' && ($r['club'] ?? '') !== '' && !isset($clubs[$code]))
             $clubs[$code] = ['code' => $code, 'name' => mb_substr($r['club'], 0, 150), 'short' => mb_substr($r['short'] ?? '', 0, 30), 'state_code' => mb_substr($r['state_code'] ?? '', 0, 10), 'state' => mb_substr($r['state'] ?? '', 0, 60)];
     }
-    $na = import_table('reg_athletes', ['license', 'lastname', 'firstname', 'club_code'], $ath, $replace);
+    $na = import_table('reg_athletes', ['license', 'lastname', 'firstname', 'club_code', 'sex'], $ath, $replace);
     $nc = $clubs ? import_table('reg_clubs', ['code', 'name', 'short', 'state_code', 'state'], array_values($clubs), $replace) : 0;
     return [$na, $nc];
 }
@@ -713,13 +765,64 @@ function lic_status(string $lic, string $ln, string $fn): string {
 function api_cfg(): array {
     $d = ['enabled' => false, 'base' => 'https://www.archeryaustria.net/api/v2', 'token_url' => '', 'auth' => 'form', 'client_id' => '', 'secret' => '',
           'path' => '/ext/licence/check', 'method' => 'GET', 'param' => 'licence', 'found_key' => 'valid', 'first_key' => 'firstname', 'last_key' => 'lastname',
-          'club_code_key' => 'club_id', 'club_name_key' => 'club_name', 'check_club' => false];
+          'club_code_key' => 'club_id', 'club_name_key' => 'club_name', 'sex_key' => 'gender', 'check_club' => false];
     $j = setting('api_config'); $c = $j !== '' ? (json_decode($j, true) ?: []) : [];
     $c = array_merge($d, $c); $c['secret'] = dec((string)$c['secret']);
     return $c;
 }
 function api_enabled(): bool { $c = api_cfg(); return !empty($c['enabled']) && str_starts_with(strtolower($c['base']), 'https://') && $c['client_id'] !== '' && $c['secret'] !== ''; }
-function athletes_available(): bool { return athletes_loaded() || api_enabled(); }
+function athletes_available(): bool { return athletes_loaded() || api_enabled() || sql_enabled(); }
+// Geschlecht normalisieren: 0 = männlich, 1 = weiblich, null = unbekannt (Ziffern werden bewusst nicht gedeutet)
+function norm_sex($v): ?int {
+    $v = mb_strtolower(trim((string)$v));
+    if (in_array($v, ['m', 'männlich', 'maennlich', 'male', 'mann', 'herr', 'herren', 'h'], true)) return 0;
+    if (in_array($v, ['w', 'weiblich', 'female', 'f', 'frau', 'dame', 'damen'], true)) return 1;
+    return null;
+}
+function truthy($v): bool { return in_array(strtolower(is_bool($v) ? ($v ? 'true' : 'false') : (string)$v), ['1', 'true', 'yes', 'ja', 'j', 'y', 'valid', 'active', 'aktiv', 'gültig'], true); }
+
+// ---- Externe SQL-Datenbank (nur Lesezugriff) – optional, in den Einstellungen aktivierbar ----------------------------
+function sql_cfg(): array {
+    $d = ['enabled' => false, 'driver' => 'mysql', 'host' => '', 'port' => '', 'db' => '', 'user' => '', 'pass' => '', 'table' => '', 'license_col' => '', 'first_col' => '', 'last_col' => '',
+          'club_code_col' => '', 'club_name_col' => '', 'sex_col' => '', 'valid_col' => '', 'check_club' => false];
+    $j = setting('sql_config'); $c = $j !== '' ? (json_decode($j, true) ?: []) : [];
+    $c = array_merge($d, $c); $c['pass'] = dec((string)$c['pass']);
+    return $c;
+}
+function sql_drivers(): array { return array_values(array_intersect(['mysql', 'pgsql', 'sqlsrv'], PDO::getAvailableDrivers())); }
+function sql_ident_ok(string $s): bool { return (bool)preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $s); }
+function sql_enabled(): bool {
+    $c = sql_cfg();
+    return !empty($c['enabled']) && in_array($c['driver'], sql_drivers(), true) && $c['host'] !== '' && $c['db'] !== '' && $c['user'] !== '' && sql_ident_ok($c['table']) && sql_ident_ok($c['license_col']);
+}
+function sql_qid(string $drv, string $id): string {
+    [$l, $r] = $drv === 'mysql' ? ['`', '`'] : ($drv === 'sqlsrv' ? ['[', ']'] : ['"', '"']);
+    return implode('.', array_map(fn($p) => $l . $p . $r, explode('.', $id)));
+}
+function sql_pdo(array $c): PDO {
+    static $pdo = null; if ($pdo) return $pdo;
+    $h = $c['host']; $p = $c['port'] !== '' ? (int)$c['port'] : 0;
+    $dsn = match ($c['driver']) {
+        'pgsql' => "pgsql:host=$h;" . ($p ? "port=$p;" : '') . "dbname={$c['db']}",
+        'sqlsrv' => "sqlsrv:Server=$h" . ($p ? ",$p" : '') . ";Database={$c['db']}",
+        default => "mysql:host=$h;" . ($p ? "port=$p;" : '') . "dbname={$c['db']};charset=utf8mb4",
+    };
+    return $pdo = new PDO($dsn, $c['user'], $c['pass'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => 5, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+}
+// Schütze zur Lizenznummer in der externen Datenbank suchen (nur SELECT mit gebundenem Parameter; Tabellen-/Spaltennamen werden geprüft)
+function sql_licence_lookup(string $lic): array {
+    $c = sql_cfg();
+    try {
+        $drv = $c['driver']; $pdo = sql_pdo($c);
+        $col = fn(string $k, string $alias) => $c[$k] !== '' && sql_ident_ok($c[$k]) ? sql_qid($drv, $c[$k]) . ' AS ' . $alias : 'NULL AS ' . $alias;
+        $sel = implode(', ', [sql_qid($drv, $c['license_col']) . ' AS c_lic', $col('first_col', 'c_fn'), $col('last_col', 'c_ln'), $col('club_code_col', 'c_cc'), $col('club_name_col', 'c_cn'), $col('sex_col', 'c_sx'), $col('valid_col', 'c_vd')]);
+        $st = $pdo->prepare('SELECT ' . ($drv === 'sqlsrv' ? 'TOP 1 ' : '') . $sel . ' FROM ' . sql_qid($drv, $c['table']) . ' WHERE ' . sql_qid($drv, $c['license_col']) . ' = ?' . ($drv === 'sqlsrv' ? '' : ' LIMIT 1'));
+        $st->execute([$lic]); $r = $st->fetch();
+        if (!$r) return ['found' => false, 'data' => null, 'error' => ''];
+        $d = ['first' => (string)$r['c_fn'], 'last' => (string)$r['c_ln'], 'club_code' => (string)$r['c_cc'], 'club' => (string)$r['c_cn'], 'sex' => norm_sex($r['c_sx']), 'found' => $r['c_vd'] !== null ? truthy($r['c_vd']) : true];
+        return ['found' => $d['found'], 'data' => $d, 'error' => ''];
+    } catch (Throwable $x) { error_log('[anmeldung] SQL-Abfrage: ' . $x->getMessage()); return ['found' => false, 'data' => null, 'error' => $x->getMessage()]; }
+}
 function api_http(string $method, string $url, array $headers = [], ?string $body = null): array {
     if (!preg_match('~^https://~i', $url)) return ['status' => 0, 'body' => '', 'error' => 'Nur https:// ist erlaubt.'];
     if (function_exists('curl_init')) {
@@ -771,10 +874,10 @@ function dot_get($a, string $path) { if ($path === '') return null; foreach (exp
 function api_map($j, array $c): array {
     if (is_array($j) && isset($j[0]) && is_array($j[0])) $j = $j[0];
     $g = fn(string $k) => (string)(is_scalar($v = dot_get($j, $k)) ? $v : '');
-    $d = ['first' => $g($c['first_key']), 'last' => $g($c['last_key']), 'club_code' => $g($c['club_code_key']), 'club' => $g($c['club_name_key'])];
+    $d = ['first' => $g($c['first_key']), 'last' => $g($c['last_key']), 'club_code' => $g($c['club_code_key']), 'club' => $g($c['club_name_key']), 'sex' => norm_sex($g((string)($c['sex_key'] ?? '')))];
     $flag = dot_get($j, (string)$c['found_key']);
     $any = $d['first'] !== '' || $d['last'] !== '' || $d['club_code'] !== '' || $d['club'] !== '';
-    $d['found'] = $flag !== null && is_scalar($flag) ? in_array(strtolower(is_bool($flag) ? ($flag ? 'true' : 'false') : (string)$flag), ['1', 'true', 'yes', 'ja', 'valid', 'active', 'aktiv', 'gültig'], true) : $any;
+    $d['found'] = $flag !== null && is_scalar($flag) ? truthy($flag) : $any;
     return $d;
 }
 // Lizenz bei der Schnittstelle nachschlagen (24 Stunden zwischengespeichert). Bei Fehlern: nicht gefunden (die Anmeldung bleibt möglich).
@@ -783,26 +886,31 @@ function api_licence_lookup(string $lic): array {
     $row = q("SELECT data FROM reg_api_cache WHERE k=? AND ts > ?", [$k, time() - 86400])->fetchColumn();
     if ($row !== false && is_array($d = json_decode((string)$row, true))) return ['found' => !empty($d['found']), 'data' => $d, 'error' => ''];
     $r = api_call($c['path'], [$c['param'] => $lic]);
-    if ($r['status'] === 404) $d = ['found' => false, 'first' => '', 'last' => '', 'club_code' => '', 'club' => ''];
+    if ($r['status'] === 404) $d = ['found' => false, 'first' => '', 'last' => '', 'club_code' => '', 'club' => '', 'sex' => null];
     elseif ($r['status'] < 200 || $r['status'] >= 300 || !is_array($r['json'])) return ['found' => false, 'data' => null, 'error' => $r['error'] ?: 'HTTP ' . $r['status']];
     else $d = api_map($r['json'], $c);
     q("DELETE FROM reg_api_cache WHERE ts < ?", [time() - 86400]);
     q("REPLACE INTO reg_api_cache (k,data,ts) VALUES (?,?,?)", [$k, json_encode($d, JSON_UNESCAPED_UNICODE), time()]);
     return ['found' => !empty($d['found']), 'data' => $d, 'error' => ''];
 }
-// Schütze zu einer Lizenznummer: zuerst die lokale Stammdaten-Liste, dann (falls aktiv) die Schnittstelle
-function athlete_find(string $lic, bool $api = true): ?array {
+// Schütze zu einer Lizenznummer: zuerst die lokale Stammdaten-Liste, dann (falls aktiv) die externe SQL-Datenbank, dann die API
+function athlete_find(string $lic, bool $ext = true): ?array {
     $lic = trim($lic); if ($lic === '') return null;
-    if ($a = athlete_by_license($lic)) return $a + ['src' => 'local', 'club_name' => ''];
-    if (!$api || !api_enabled()) return null;
-    $r = api_licence_lookup($lic); if (!$r['found'] || !$r['data']) return null;
-    $d = $r['data'];
-    return ['license' => $lic, 'lastname' => $d['last'], 'firstname' => $d['first'], 'club_code' => $d['club_code'], 'club_name' => $d['club'], 'src' => 'api'];
+    if ($a = athlete_by_license($lic)) { $a['sex'] = ($a['sex'] ?? null) === null ? null : (int)$a['sex']; return $a + ['src' => 'local', 'club_name' => '']; }
+    if (!$ext) return null;
+    foreach (['sql' => sql_enabled(), 'api' => api_enabled()] as $src => $on) {
+        if (!$on) continue;
+        $r = $src === 'sql' ? sql_licence_lookup($lic) : api_licence_lookup($lic);
+        if (!$r['found'] || !$r['data']) continue;
+        $d = $r['data'];
+        return ['license' => $lic, 'lastname' => $d['last'], 'firstname' => $d['first'], 'club_code' => $d['club_code'], 'club_name' => $d['club'], 'sex' => $d['sex'] ?? null, 'src' => $src];
+    }
+    return null;
 }
 
 // Vereinsvergleich: Groß-/Kleinschreibung, Akzente und Leerzeichen werden ignoriert
 function club_matches(array $a, array $f): bool {
-    if (($a['src'] ?? '') === 'api' && empty(api_cfg()['check_club'])) return true;     // Vereinscodes der Schnittstelle können abweichen
+    if (in_array($a['src'] ?? '', ['api', 'sql'], true) && empty(($a['src'] === 'sql' ? sql_cfg() : api_cfg())['check_club'])) return true;     // Vereinscodes externer Quellen können abweichen
     if ($a['club_code'] === '') {
         $nm = (string)($a['club_name'] ?? ''); if ($nm === '') return true;
         $given = $f['club_code'] !== '' ? (club_by_code($f['club_code'])['name'] ?? $f['club']) : $f['club'];
@@ -823,10 +931,12 @@ function athlete_check(array &$f, bool $api = true): ?string {
         if (!$a) { $f['lic_check'] = 'unbekannt'; return null; }
         if ($a['lastname'] !== '' && !same_person($a, $f['lastname'], $f['firstname'])) return t('Die Lizenznummer gehört zu einer anderen Person. Bitte Lizenznummer sowie Vor- und Nachname prüfen.');
         $f['lic_check'] = 'ok';
+        if (($a['sex'] ?? null) !== null && isset($f['sex']) && (int)$f['sex'] !== (int)$a['sex']) { $f['lic_check'] = 'geschlecht'; return t('Das Geschlecht passt nicht zur Lizenznummer. Bitte die Angabe prüfen.'); }
         if (!club_matches($a, $f)) { $f['lic_check'] = 'verein'; return t('Der Verein passt nicht zur Lizenznummer. Bitte den Verein prüfen.'); }
     } else {
         if (!athletes_loaded()) return null;
         $m = athletes_by_name($f['lastname'], $f['firstname']);
+        if (isset($f['sex'])) $m = array_values(array_filter($m, fn($x) => ($x['sex'] ?? null) === null || (int)$x['sex'] === (int)$f['sex']));
         if (count($m) !== 1) return null;
         if ($f['club_code'] !== '' && $m[0]['club_code'] !== '' && !club_matches($m[0], $f)) return null;
         $a = $m[0]; $f['license'] = $a['license']; $f['lic_check'] = 'auto';
@@ -838,15 +948,15 @@ function athlete_check(array &$f, bool $api = true): ?string {
 function athlete_lookup(string $lic): ?array {
     $a = athlete_find($lic); if (!$a) return null;
     $c = club_by_code((string)$a['club_code']);
-    return ['first' => $a['firstname'], 'last' => $a['lastname'], 'club_code' => $c ? $a['club_code'] : '', 'club' => $c['name'] ?? (string)($a['club_name'] ?? '')];
+    return ['first' => $a['firstname'], 'last' => $a['lastname'], 'sex' => $a['sex'] ?? null, 'club_code' => $c ? $a['club_code'] : '', 'club' => $c['name'] ?? (string)($a['club_name'] ?? '')];
 }
 // Backend: Schützenabgleich für alle Anmeldungen eines Turniers (nur wenn eine Schützenliste eingespielt ist)
 function athlete_sync_event(int $eid): string {
     if (!athletes_loaded()) return 'Keine Schützenliste eingespielt.';
-    $ev = q("SELECT * FROM reg_events WHERE id=?", [$eid])->fetch(); $cnt = ['ok' => 0, 'auto' => 0, 'unbekannt' => 0, 'abweichend' => 0, 'verein' => 0, 'frei' => 0, '' => 0];
+    $ev = q("SELECT * FROM reg_events WHERE id=?", [$eid])->fetch(); $cnt = ['ok' => 0, 'auto' => 0, 'unbekannt' => 0, 'abweichend' => 0, 'verein' => 0, 'geschlecht' => 0, 'frei' => 0, '' => 0];
     foreach (q("SELECT * FROM reg_entries WHERE event_id=?", [$eid])->fetchAll() as $r) {
         if (in_array($r['lic_check'], ['frei', 'ausland'], true)) { $cnt['frei']++; continue; }                    // lizenzfreie Teilnehmer nicht anfassen
-        $f = ['license' => $r['license'], 'lastname' => $r['lastname'], 'firstname' => $r['firstname'], 'club' => $r['club'], 'club_code' => $r['club_code']];
+        $f = ['license' => $r['license'], 'lastname' => $r['lastname'], 'firstname' => $r['firstname'], 'club' => $r['club'], 'club_code' => $r['club_code'], 'sex' => (int)$r['sex']];
         $a = $f['license'] !== '' ? athlete_by_license($f['license']) : null;
         if ($f['license'] !== '' && $a && !same_person($a, $f['lastname'], $f['firstname'])) $f['lic_check'] = 'abweichend';
         else athlete_check($f, false);
@@ -856,10 +966,10 @@ function athlete_sync_event(int $eid): string {
             if ($r['en_id'] && $ev) { try { ianseo_update((int)$ev['to_id'], q("SELECT * FROM reg_entries WHERE id=?", [$r['id']])->fetch()); } catch (Throwable $x) {} }
         }
     }
-    return "Abgleich fertig: {$cnt['ok']} geprüft, {$cnt['auto']} Lizenz automatisch zugeordnet, {$cnt['unbekannt']} Lizenz nicht in Liste, {$cnt['abweichend']} Name abweicht, {$cnt['verein']} Verein abweicht, {$cnt['frei']} lizenzfrei/Ausland.";
+    return "Abgleich fertig: {$cnt['ok']} geprüft, {$cnt['auto']} Lizenz automatisch zugeordnet, {$cnt['unbekannt']} Lizenz nicht in Liste, {$cnt['abweichend']} Name abweicht, {$cnt['verein']} Verein abweicht, {$cnt['geschlecht']} Geschlecht abweicht, {$cnt['frei']} lizenzfrei/Ausland.";
 }
 function lic_tag(string $s): string {
-    $m = ['ok' => ['paid', 'geprüft'], 'auto' => ['', 'automatisch zugeordnet'], 'unbekannt' => ['open', 'nicht in Schützenliste'], 'abweichend' => ['open', 'Name weicht ab'], 'verein' => ['open', 'Verein weicht ab'], 'frei' => ['', 'lizenzfrei'], 'ausland' => ['', 'Ausland']];
+    $m = ['ok' => ['paid', 'geprüft'], 'auto' => ['', 'automatisch zugeordnet'], 'unbekannt' => ['open', 'nicht in Schützenliste'], 'abweichend' => ['open', 'Name weicht ab'], 'verein' => ['open', 'Verein weicht ab'], 'geschlecht' => ['open', 'Geschlecht weicht ab'], 'frei' => ['', 'lizenzfrei'], 'ausland' => ['', 'Ausland']];
     return isset($m[$s]) ? ' <span class="tag ' . $m[$s][0] . '">' . $m[$s][1] . '</span>' : '';
 }
 

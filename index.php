@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
 require __DIR__ . '/lib.php';
 $events = q("SELECT * FROM reg_events WHERE published=1 ORDER BY id DESC")->fetchAll();
 $ev = null; $eid = (int)($_GET['e'] ?? 0);
@@ -72,13 +72,13 @@ if ($ev) {
             q("INSERT INTO reg_entries (event_id,session_id,firstname,lastname,sex,dob,club,license,email,division,class,qtype,q1,q2,q3,qy,qe,club_code,lic_check,country,lang,consent_at,consent_media) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
               [$ev['id'], $ses['id'], $f['firstname'], $f['lastname'], $f['sex'], $dob, $f['club'], $f['license'], $f['email'], $f['division'], $f['class'],
                $oem ? $f['qtype'] : null, $f['q1'], $f['q2'], $f['q3'], $f['qy'], $f['qe'], $f['club_code'], $f['lic_check'], $f['country'], lang(), date('Y-m-d H:i:s'), $media]);
-            $done = ref_code((int)$ev['id'], (int)db()->lastInsertId());
+            $newId = (int)db()->lastInsertId();
+            $done = ref_code((int)$ev['id'], $newId);
+            log_event('anmeldung', (int)$ev['id'], $newId, $f['lastname'] . ' ' . $f['firstname'] . ', ' . ($ses['name'] ?: 'Durchgang ' . $ses['no']) . ', ' . $f['division'] . '/' . $f['class'] . ($f['club'] !== '' ? ', ' . $f['club'] : ''), 'Teilnehmer/in');
             $purpose = purpose_text($ev, $f, $done);
             $pp = paypal_url($ev);
-            send_mail($f['email'], t('Anmeldung eingegangen: %s', $ev['title']),
-                t('Hallo %s,', $f['firstname']) . "\n\n" . t('deine Anmeldung zu „%s“ ist eingegangen. Du stehst auf der Warteliste, bis die Zahlung verbucht ist.', $ev['title']) . "\n\n"
-                . t('Verwendungszweck: %s', $purpose) . "\n\n" . ($ev['pay_info'] ? $ev['pay_info'] . "\n\n" : '')
-                . ($pp !== '' ? t('Alternativ per PayPal: %s', $pp) . "\n\n" : '') . t('Sobald die Zahlung verbucht ist, bekommst du eine Bestätigung.'));
+            [$ms, $mb] = mail_render($ev, 'reg', lang(), mail_vars($ev, $f, $ses, $done, lang()));
+            send_mail($f['email'], $ms, $mb);
             $o = owner_of($ev);
             if ($o && $o['email'] !== '') send_mail($o['email'], 'Neue Anmeldung: ' . $ev['title'],
                 "Neue Anmeldung zu \"{$ev['title']}\" ($done)\n\n{$f['lastname']} {$f['firstname']}\nVerein: {$f['club']}" . ($f['country'] ? " ({$f['country']})" : '') . "\nLizenz: {$f['license']}\nBogenklasse/Altersklasse: {$f['division']} / {$f['class']}\nDurchgang: "
@@ -197,7 +197,7 @@ else {
       li.addEventListener('change',function(){var v=li.value.trim();if(!v||fo.checked||li.disabled)return;
         fetch('lookup.php?lic='+encodeURIComponent(v)+'&lang=<?= lang() ?>',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(r){
           h.textContent=r.msg||'';h.className='hint'+(r.ok?' ok':'');if(!r.ok)return;
-          q('fn').value=r.first;q('ln').value=r.last;
+          q('fn').value=r.first;q('ln').value=r.last;if(r.sex===0||r.sex===1){var sx=document.querySelector('select[name=sex]');if(sx)sx.value=String(r.sex);}
           if(cs){if(r.club_code&&cs.querySelector('option[value="'+r.club_code+'"]'))cs.value=r.club_code;else if(r.club){cs.value='other';q('clubname').value=r.club;}a();}
         }).catch(function(){});});
       <?php } ?>

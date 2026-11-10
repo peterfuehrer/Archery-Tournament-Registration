@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
 // Englische Übersetzungen (Schlüssel = deutscher Originaltext). Fehlt ein Eintrag, wird der deutsche Text angezeigt.
 return [
     'Bitte einen Verein wählen (oder „Anderer Verein“).' => 'Please choose a club (or "Other club").',
@@ -121,6 +121,7 @@ return [
     'Schöne Grüße' => 'Best regards',
     'das Organisationsteam' => 'the organising team',
     'Die Lizenznummer gehört zu einer anderen Person. Bitte Lizenznummer sowie Vor- und Nachname prüfen.' => 'The licence number belongs to a different person. Please check the licence number and first and last name.',
+    'Das Geschlecht passt nicht zur Lizenznummer. Bitte die Angabe prüfen.' => 'The gender does not match the licence number. Please check your entry.',
     'Der Verein passt nicht zur Lizenznummer. Bitte den Verein prüfen.' => 'The club does not match the licence number. Please check the club.',
     'Bitte zuerst den Lizenzbedingungen zustimmen.' => 'Please agree to the licence terms first.',
     'Verbindung erfolgreich.' => 'Connection successful.',

@@ -1,3 +1,16 @@
+RewriteEngine On
+
+# admin ohne .php aufrufen
+RewriteEngine On
+
+# Direkte Aufrufe mit .php auf URL ohne Endung umleiten
+RewriteCond %{THE_REQUEST} \s/+(.+?)\.php(?:[\s?])
+RewriteRule ^(.+)\.php$ /$1 [R=301,L,NE]
+
+# PHP-Dateien intern ohne Endung auflösen
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(.+?)/?$ $1.php [END]
 # Schutz der Konfiguration und interner Dateien (Apache). Turnier-Anmeldeplattform – GNU AGPLv3
 Options -Indexes
 <IfModule mod_authz_core.c>

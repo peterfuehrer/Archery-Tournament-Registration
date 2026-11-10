@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
 // Normalerweise erzeugt install.php diese Datei automatisch (grafischer Assistent). Manuell: als config.php speichern.
 // Mailserver, Impressum, Datenschutz und Logo werden im Backend unter "Einstellungen" gepflegt.
 return [

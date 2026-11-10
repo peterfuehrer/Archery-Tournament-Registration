@@ -1,5 +1,5 @@
 Turnier-Anmeldeplattform für ianseo / Tournament registration platform for ianseo
-Copyright (C) 2026 Peter Führer – Version 2026.11.08-a
+Copyright (C) 2026 Peter Führer – Version 2026.11.08-d
 
 Dieses Projekt ist freie Software und wird unter der GNU Affero General Public License v3 (AGPLv3) veröffentlicht. Die AGPLv3 ist eine von der
 Open Source Initiative (OSI) anerkannte Lizenz; das Projekt entspricht den Kriterien der Open Source Definition. Lizenztext: Datei LICENSE.
@@ -45,6 +45,13 @@ EXTERNE LIZENZPRÜFUNG (API, optional): Backend -> Einstellungen -> "Externe Liz
 SCHUTZ DER ZUGANGSDATEN: (1) Der Installer legt die Konfiguration bevorzugt EINE EBENE ÜBER dem Plattform-Ordner ab (anmeldung-config-xxxx.php, Rechte 0640). Bestehende config.php: Datei dorthin verschieben.
   (2) Die mitgelieferte .htaccess sperrt config.php, lib.php u. a. für den Abruf per Browser. (3) Eigenen Datenbank-Benutzer mit minimalen Rechten nur für diese Datenbank verwenden.
   (4) HTTPS erzwingen. (5) diag.php zeigt unter "Abruf von außen", ob die Dateien lesbar wären – danach diag.php löschen.
+GESCHLECHT IM ABGLEICH: Die Stammdaten-CSV kann optional die Spalte "Geschlecht" (M/W, männlich/weiblich) enthalten; auch API (Feld "Geschlecht") und SQL-Datenbank (Spalte) liefern es.
+  Bei der Anmeldung wird das Geschlecht gegen die Lizenz geprüft (Abweichung = Fehlermeldung), beim Autofill wird es übernommen.
+EXTERNE SQL-DATENBANK (optional, nur Lesen): Backend -> Einstellungen -> "Externe SQL-Datenbank": Typ (MySQL/MariaDB, PostgreSQL, SQL Server), Server, Datenbank, Benutzer, Passwort, Tabelle/View und Spalten
+  (Lizenznummer, Vor-/Nachname, Verein, Geschlecht, gültig). Reihenfolge der Quellen: lokale Stammdaten -> SQL -> API. Nur ein SELECT mit gebundenem Parameter; Bezeichner werden geprüft. Eigenen Lese-Benutzer verwenden!
+PROTOKOLL: Backend -> Protokoll: Anmeldungen, Zahlungen, Änderungen, Verschiebungen, Löschungen, Importe, ianseo-Übertragungen, Öffnen/Schließen (mit Zeit und Benutzer). Filter, CSV-Export, automatische Löschung nach 24 Monaten.
+  Sichtbar: Administrator (alles), Organisationsleitung und Kassier (nur eigene bzw. freigegebene Turniere).
+E-MAIL-TEXTE JE TURNIER: Turnier-Einstellungen -> "E-Mail-Texte": eigener Betreff und Text (Deutsch/Englisch) für die Eingangsbestätigung und die Startplatz-Bestätigung, mit Platzhaltern wie {vorname}, {turnier}, {verwendungszweck}, {paypal}. Leer = Standardtext. Testmail-Knopf vorhanden.
 
 === ENGLISH =====================================================================================================
 
@@ -81,3 +88,10 @@ EXTERNAL LICENCE CHECK (API, optional): Back office -> Settings -> "External lic
 PROTECTING CREDENTIALS: (1) The installer stores the configuration preferably ONE LEVEL ABOVE the platform folder (anmeldung-config-xxxx.php, permissions 0640). Existing config.php: move the file there.
   (2) The supplied .htaccess blocks browser access to config.php, lib.php etc. (3) Use a dedicated database user with minimal privileges for this database only.
   (4) Enforce HTTPS. (5) diag.php shows under "Request from outside" whether the files would be readable – delete diag.php afterwards.
+GENDER IN THE CHECK: The master data CSV may optionally contain a "Gender" column (M/W, male/female); the API (field "Gender") and the SQL database (column) can supply it too.
+  Registration checks the gender against the licence (mismatch = error message); autofill takes it over.
+EXTERNAL SQL DATABASE (optional, read only): Back office -> Settings -> "External SQL database": type (MySQL/MariaDB, PostgreSQL, SQL Server), server, database, user, password, table/view and columns
+  (licence number, first/last name, club, gender, valid). Source order: local master data -> SQL -> API. A single SELECT with a bound parameter; identifiers are validated. Use a dedicated read-only user!
+LOG: Back office -> Log: registrations, payments, changes, moves, deletions, imports, ianseo transfers, opening/closing (with time and user). Filters, CSV export, automatic deletion after 24 months.
+  Visible: administrator (all), organiser and treasurer (own or released tournaments only).
+E-MAIL TEXTS PER TOURNAMENT: Tournament settings -> "E-mail texts": own subject and text (German/English) for the registration confirmation and the starting-place confirmation, with placeholders such as {vorname}, {turnier}, {verwendungszweck}, {paypal}. Empty = default text. A test-mail button is provided.
