@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
 // Englische Übersetzungen (Schlüssel = deutscher Originaltext). Fehlt ein Eintrag, wird der deutsche Text angezeigt.
 return [
     'Bitte einen Verein wählen (oder „Anderer Verein“).' => 'Please choose a club (or "Other club").',
@@ -114,6 +114,9 @@ return [
     'Datum' => 'Date',
     'Ort' => 'Location',
     'Anmeldeschluss' => 'Registration deadline',
+    'Anmeldestart' => 'Registration opens',
+    'Die Anmeldung öffnet am %s.' => 'Registration opens on %s.',
+    'Anmeldung ab %s' => 'Registration from %s',
     'Organisation' => 'Organiser',
     'Startplatz bestätigt: %s' => 'Starting place confirmed: %s',
     'deine Zahlung ist verbucht. Du stehst in der Starterliste von „%s“ (%s).' => 'your payment has been booked. You are on the starting list of "%s" (%s).',

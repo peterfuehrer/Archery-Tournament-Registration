@@ -1,6 +1,6 @@
 <?php
 /*
- * Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – Version 2026.11.08-d
+ * Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – Version 2026.11.15-a
  *
  * This program is free software: you can redistribute it and/or modify it under the terms of the
  * GNU Affero General Public License as published by the Free Software Foundation, either version 3
@@ -10,7 +10,7 @@
  */
 declare(strict_types=1);
 // Copyright (C) 2026 Peter Führer – nur als Vermerk im Quelltext, wird nicht auf den Seiten angezeigt.
-const APP_VERSION = '2026.11.08-d';
+const APP_VERSION = '2026.11.15-a';
 // Konfiguration (enthält die Datenbank-Zugangsdaten): bevorzugt außerhalb des Web-Ordners, sonst config.php im Plattform-Ordner
 function config_file(): ?string {
     foreach ([(string)getenv('ANMELDUNG_CONFIG'), dirname(__DIR__) . '/anmeldung-config-' . substr(md5(__DIR__), 0, 8) . '.php', __DIR__ . '/config.php'] as $p)
@@ -86,7 +86,7 @@ function fmt_date($d): string {
 
 // ---- Schema (Updates laufen automatisch) -----------------------------------
 function ensure_schema(): void {
-    if (($_SESSION['schema_v'] ?? 0) === 13) return;
+    if (($_SESSION['schema_v'] ?? 0) === 14) return;
     try {
         $db = db();
         $db->exec("CREATE TABLE IF NOT EXISTS reg_settings (k VARCHAR(40) PRIMARY KEY, v TEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -98,6 +98,7 @@ function ensure_schema(): void {
         $db->exec("CREATE TABLE IF NOT EXISTS reg_clubs (code VARCHAR(20) PRIMARY KEY, name VARCHAR(150) NOT NULL, state_code VARCHAR(10) NOT NULL DEFAULT '', state VARCHAR(60) NOT NULL DEFAULT '', KEY nm (name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_athletes (license VARCHAR(25) PRIMARY KEY, lastname VARCHAR(60) NOT NULL, firstname VARCHAR(60) NOT NULL, club_code VARCHAR(20) NOT NULL DEFAULT '', KEY nm (lastname, firstname)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $db->exec("CREATE TABLE IF NOT EXISTS reg_event_users (event_id INT NOT NULL, user_id INT NOT NULL, PRIMARY KEY (event_id,user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $db->exec("CREATE TABLE IF NOT EXISTS reg_event_scorers (event_id INT NOT NULL, user_id INT NOT NULL, PRIMARY KEY (event_id,user_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $add = [
             ['reg_users', 'role', "VARCHAR(12) NOT NULL DEFAULT 'admin'"],
             ['reg_users', 'fullname', "VARCHAR(100) NOT NULL DEFAULT ''"],
@@ -130,13 +131,15 @@ function ensure_schema(): void {
             ['reg_entries', 'qe', "VARCHAR(150) NOT NULL DEFAULT ''"],
             ['reg_entries', 'club_code', "VARCHAR(20) NOT NULL DEFAULT ''"],
             ['reg_entries', 'lic_check', "VARCHAR(12) NOT NULL DEFAULT ''"],
+            ['reg_events', 'reg_start', "DATE NULL"],
+            ['reg_events', 'auto_open', "TINYINT NOT NULL DEFAULT 0"],
         ];
         foreach ($add as [$t, $c, $def])
             if (!$db->query("SHOW COLUMNS FROM `$t` LIKE " . $db->quote($c))->fetch()) $db->exec("ALTER TABLE `$t` ADD COLUMN `$c` $def");
         $c = $db->query("SHOW COLUMNS FROM reg_entries LIKE 'dob'")->fetch();   // Geburtsdatum optional -> NULL statt Nulldatum
         if ($c && $c['Null'] === 'NO') $db->exec("ALTER TABLE reg_entries MODIFY dob DATE NULL");
         $db->exec("UPDATE reg_entries SET dob=NULL WHERE dob='0000-00-00'");
-        $_SESSION['schema_v'] = 13;
+        $_SESSION['schema_v'] = 14;
     } catch (Throwable $x) { error_log('[anmeldung] Schema: ' . $x->getMessage()); }
 }
 function setting(string $k): string {
@@ -148,7 +151,7 @@ function site_title(): string { global $CFG; return setting('site_title') !== ''
 function set_setting(string $k, string $v): void { q("REPLACE INTO reg_settings (k,v) VALUES (?,?)", [$k, $v]); }
 
 // ---- Rollen ---------------------------------------------------------------
-const ROLES = ['admin' => 'Administrator', 'orga' => 'Organisationsleitung', 'kassier' => 'Kassier'];
+const ROLES = ['admin' => 'Administrator', 'orga' => 'Organisationsleitung', 'auswerter' => 'Auswerter', 'kassier' => 'Kassier'];
 function uid(): int { return (int)($_SESSION['uid'] ?? 0); }
 function role(): string {
     if (!uid()) return '';
@@ -157,7 +160,11 @@ function role(): string {
 }
 function is_admin(): bool { return role() === 'admin'; }
 function can_create_event(): bool { return in_array(role(), ['admin', 'orga'], true); }
-function can_event(array $ev): bool { return is_admin() || (role() === 'orga' && (int)$ev['owner_id'] === uid()); }
+// Auswerter: bis zu 3 je Turnier (Tabelle reg_event_scorers), gleiche Rechte wie die Organisationsleitung dieses Turniers, erscheinen nirgends auf der öffentlichen Seite
+function is_auswerter_of(array $ev): bool {
+    return role() === 'auswerter' && (bool)q("SELECT 1 FROM reg_event_scorers WHERE event_id=? AND user_id=?", [$ev['id'], uid()])->fetch();
+}
+function can_event(array $ev): bool { return is_admin() || (role() === 'orga' && (int)$ev['owner_id'] === uid()) || is_auswerter_of($ev); }
 function is_kassier_of(array $ev): bool {
     return role() === 'kassier' && (bool)q("SELECT 1 FROM reg_event_users WHERE event_id=? AND user_id=?", [$ev['id'], uid()])->fetch();
 }
@@ -235,6 +242,7 @@ function event_head(array $ev): void {
     $o = owner_of($ev); $items = [];
     if ($date !== '') $items[] = [t('Datum'), e($date)];
     if (!empty($t['ToWhere'])) $items[] = [t('Ort'), e($t['ToWhere'])];
+    if (!empty($ev['reg_start'])) $items[] = [t('Anmeldestart'), e(fmt_date($ev['reg_start']))];
     if (!empty($ev['deadline'])) $items[] = [t('Anmeldeschluss'), e(fmt_date($ev['deadline']))];
     if ($o) $items[] = [t('Organisation'), e($o['fullname'] !== '' ? $o['fullname'] : $o['username']) . ($o['email'] !== '' ? ' · <a href="mailto:' . e($o['email']) . '">' . e($o['email']) . '</a>' : '')];
     if (($d = doc_link($ev)) !== '') $items[] = [t('Ausschreibung'), $d];
@@ -348,7 +356,7 @@ function qual_text(array $r): string {
 // ---- Protokoll der Anmeldungen (Backend -> Protokoll) -------------------------------------------------
 const LOG_ACTIONS = ['anmeldung' => 'Neue Anmeldung', 'bezahlt' => 'Als bezahlt markiert', 'zurueck' => 'Zahlung zurückgesetzt', 'bearbeitet' => 'Anmeldung bearbeitet', 'verschoben' => 'Durchgang gewechselt',
     'geloescht' => 'Anmeldung gelöscht', 'import' => 'Import', 'ianseo_neu' => 'Nach ianseo übertragen', 'ianseo_entfernt' => 'Aus ianseo entfernt', 'abgleich' => 'Lizenzabgleich',
-    'turnier_auf' => 'Turnier geöffnet', 'turnier_zu' => 'Turnier geschlossen', 'durchgang_auf' => 'Durchgang geöffnet', 'durchgang_zu' => 'Durchgang geschlossen', 'turnier_geloescht' => 'Turnier entfernt'];
+    'turnier_auf' => 'Turnier geöffnet', 'turnier_zu' => 'Turnier geschlossen', 'durchgang_auf' => 'Durchgang geöffnet', 'durchgang_zu' => 'Durchgang geschlossen', 'turnier_geloescht' => 'Turnier entfernt', 'rundmail' => 'Rundmail gesendet'];
 function log_event(string $action, ?int $eventId = null, ?int $entryId = null, string $details = '', ?string $actor = null): void {
     try {
         q("INSERT INTO reg_log (ts,event_id,entry_id,user_id,actor,action,details) VALUES (?,?,?,?,?,?,?)",
@@ -382,11 +390,12 @@ function mail_cfg(): array {
 }
 
 // ---- Mail (SMTP, optional IMAP-Ablage, oder PHP mail()) -------------------------
-function mail_build(string $from, string $name, string $to, string $subject, string $body): string {
+function mail_build(string $from, string $name, string $to, string $subject, string $body, string $reply = ''): string {
     $enc = fn(string $s) => '=?UTF-8?B?' . base64_encode($s) . '?=';
     $h = ['Date: ' . date('r'), 'From: ' . ($name !== '' ? $enc($name) . ' ' : '') . '<' . $from . '>', 'To: <' . $to . '>',
           'Subject: ' . $enc($subject), 'Message-ID: <' . bin2hex(random_bytes(8)) . '@' . preg_replace('/^.*@/', '', $from) . '>',
           'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64'];
+    if ($reply !== '' && filter_var($reply, FILTER_VALIDATE_EMAIL)) $h[] = 'Reply-To: <' . $reply . '>';
     return implode("\r\n", $h) . "\r\n\r\n" . chunk_split(base64_encode($body), 76, "\r\n");
 }
 function smtp_send(array $c, string $from, string $to, string $raw): void {
@@ -438,7 +447,7 @@ function imap_save_sent(array $c, string $raw): void {
     fclose($fp);
 }
 // Rückgabe: null = ok, sonst Fehlertext. driver 'smtp' (optional mit Rückfall auf mail()) oder 'mail'.
-function send_mail(string $to, string $subject, string $body): ?string {
+function send_mail(string $to, string $subject, string $body, ?string $replyTo = null): ?string {
     $m = mail_cfg();
     if (!empty($GLOBALS['no_mail'])) return null;                       // z. B. während eines Imports
     if (empty($m['enabled'])) return 'E-Mail-Versand ist in config.php nicht aktiviert.';
@@ -447,7 +456,7 @@ function send_mail(string $to, string $subject, string $body): ?string {
     $note = null;
     if (($m['driver'] ?? 'mail') === 'smtp') {
         try {
-            $raw = mail_build($from, $name, $to, $subject, $body);
+            $raw = mail_build($from, $name, $to, $subject, $body, (string)$replyTo);
             smtp_send($m['smtp'] ?? [], $from, $to, $raw);
             if (!empty($m['imap']['enabled'])) {
                 try { imap_save_sent($m['imap'], $raw); }
@@ -461,13 +470,33 @@ function send_mail(string $to, string $subject, string $body): ?string {
         }
     }
     $h = 'From: ' . $name . ' <' . $from . ">\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8";
+    if ($replyTo !== null && filter_var($replyTo, FILTER_VALIDATE_EMAIL)) $h .= "\r\nReply-To: " . $replyTo;
     if (!@mail($to, '=?UTF-8?B?' . base64_encode($subject) . '?=', $body, $h, '-f' . $from)) return ($note ? $note . ' – ' : '') . 'mail() fehlgeschlagen.';
     return $note ? 'Mail wurde per mail() gesendet. Hinweis: ' . $note : null;
 }
 
 // ---- Anmeldung offen/geschlossen (Turnier und Durchgänge) -------------------------------------------
 // Turnier offen = freigegeben UND Anmeldeschluss (einschließlich dieses Tages, 23:59 Uhr) noch nicht überschritten
-function event_is_open(array $ev): bool { return !empty($ev['is_open']) && (empty($ev['deadline']) || $ev['deadline'] >= date('Y-m-d')); }
+function event_is_open(array $ev): bool { return !empty($ev['is_open']) && (empty($ev['reg_start']) || $ev['reg_start'] <= date('Y-m-d')) && (empty($ev['deadline']) || $ev['deadline'] >= date('Y-m-d')); }
+// Anmeldestart liegt noch in der Zukunft und das Turnier ist (oder wird automatisch) freigegeben
+function event_starts_later(array $ev): bool { return !empty($ev['reg_start']) && $ev['reg_start'] > date('Y-m-d') && (!empty($ev['is_open']) || !empty($ev['auto_open'])); }
+// Statustext fürs Backend: offen / geschlossen / geschlossen (Anmeldeschluss erreicht) / öffnet am …
+function event_state(array $ev): string {
+    if (event_starts_later($ev)) return 'öffnet am ' . fmt_date($ev['reg_start']);
+    if (empty($ev['is_open'])) return 'geschlossen';
+    return event_is_open($ev) ? 'offen' : 'geschlossen (Anmeldeschluss erreicht)';
+}
+// Automatisch auf "Anmeldung offen" schalten, sobald der Anmeldestart erreicht ist (Option je Turnier; wird einmalig ausgeführt, danach bleibt manuelles Schließen bestehen)
+function auto_open_events(): void {
+    try {
+        $today = date('Y-m-d');
+        foreach (q("SELECT id,title FROM reg_events WHERE auto_open=1 AND reg_start IS NOT NULL AND reg_start <= ? AND (deadline IS NULL OR deadline >= ?)", [$today, $today])->fetchAll() as $r) {
+            if (q("UPDATE reg_events SET is_open=1, auto_open=0 WHERE id=? AND auto_open=1", [$r['id']])->rowCount() > 0)
+                log_event('turnier_auf', (int)$r['id'], null, $r['title'] . ' (automatisch zum Anmeldestart)', 'automatisch');
+        }
+    } catch (Throwable $x) { error_log('[anmeldung] Anmeldestart: ' . $x->getMessage()); }
+}
+
 // Durchgang offen = Turnier offen, nicht manuell geschlossen und ein eigener Anmeldeschluss (nur früher möglich) nicht überschritten
 function session_is_open(array $ev, array $s): bool {
     if (!event_is_open($ev) || !empty($s['closed'])) return false;
@@ -475,22 +504,34 @@ function session_is_open(array $ev, array $s): bool {
 }
 
 // ---- E-Mail-Texte je Turnier (Platzhalter in {geschweiften Klammern}) ---------------------------------
+// Nenngeld (Feld "Startgeld" des Turniers) als Text: 25,00 € bzw. €25.00; leer, wenn nichts eingetragen ist
+function fee_text(array $ev, string $lang = 'de'): string {
+    $raw = trim((string)($ev['fee'] ?? '')); if ($raw === '') return '';
+    $n = str_replace(',', '.', (string)preg_replace('/[^0-9.,]/', '', $raw));
+    if (!is_numeric($n)) return $raw;
+    return $lang === 'en' ? '€' . number_format((float)$n, 2, '.', ',') : number_format((float)$n, 2, ',', '.') . ' €';
+}
+// Platzhalter {name} ersetzen – Groß-/Kleinschreibung egal ({Nenngeld} = {nenngeld}); unbekannte Platzhalter bleiben stehen
+function fill_vars(string $tpl, array $vars): string {
+    $m = []; foreach ($vars as $k => $v) $m[strtolower((string)$k)] = (string)$v;
+    return (string)preg_replace_callback('/\{([A-Za-z_]+)\}/', fn($x) => $m[strtolower($x[1])] ?? $x[0], $tpl);
+}
 function mail_vars(array $ev, array $e, array $s, string $ref, string $lang): array {
     $o = owner_of($ev);
     return ['vorname' => (string)$e['firstname'], 'nachname' => (string)$e['lastname'], 'name' => $e['firstname'] . ' ' . $e['lastname'], 'turnier' => (string)$ev['title'],
         'durchgang' => (string)(($s['name'] ?? '') !== '' ? $s['name'] : tl($lang, 'Durchgang') . ' ' . ($s['no'] ?? '')), 'ref' => $ref, 'verwendungszweck' => purpose_text($ev, $e, $ref),
         'zahlungsinfo' => (string)($ev['pay_info'] ?? ''), 'paypal' => paypal_url($ev), 'verein' => (string)($e['club'] ?? ''), 'lizenz' => (string)($e['license'] ?? ''),
         'bogenklasse' => (string)($e['division'] ?? ''), 'altersklasse' => (string)($e['class'] ?? ''), 'anmeldeschluss' => fmt_date($ev['deadline'] ?? ''),
+        'anmeldestart' => fmt_date($ev['reg_start'] ?? ''), 'nenngeld' => fee_text($ev, $lang),
         'organisation' => $o ? trim(($o['fullname'] !== '' ? $o['fullname'] : $o['username']) . ($o['email'] !== '' ? ' <' . $o['email'] . '>' : '')) : ''];
 }
 // Eigener Text des Turniers (Sprache des Teilnehmers, sonst die andere Sprache); null = Standardtext
 function mail_tpl(array $ev, string $kind, string $lang, array $vars): ?array {
     $t = json_decode((string)($ev['mail_tpl'] ?? ''), true);
     if (!is_array($t) || empty($t[$kind])) return null;
-    $map = []; foreach ($vars as $k => $v) $map['{' . $k . '}'] = (string)$v;
     foreach ([$lang, $lang === 'en' ? 'de' : 'en'] as $l) {
         $b = trim((string)($t[$kind][$l]['b'] ?? ''));
-        if ($b !== '') return [strtr(trim((string)($t[$kind][$l]['s'] ?? '')), $map), strtr($b, $map)];
+        if ($b !== '') return [fill_vars(trim((string)($t[$kind][$l]['s'] ?? '')), $vars), fill_vars($b, $vars)];
     }
     return null;
 }
@@ -973,4 +1014,88 @@ function lic_tag(string $s): string {
     return isset($m[$s]) ? ' <span class="tag ' . $m[$s][0] . '">' . $m[$s][1] . '</span>' : '';
 }
 
-if (!defined('INSTALLING')) ensure_schema();
+// ---- Filter, Statistik und Rundmail (Backend) ---------------------------------------------------------
+// Filter aus GET/POST: q = Suche, ses = Durchgang (id), div = Bogenklasse, cls = Altersklasse, z = Zahlung (1 bezahlt / 0 offen), st = Starter/Warteliste
+function entry_filter_params(array $g): array {
+    $z = (string)($g['z'] ?? ''); $st = (string)($g['st'] ?? '');
+    return ['q' => trim((string)($g['q'] ?? '')), 'ses' => (int)($g['ses'] ?? 0), 'div' => (string)($g['div'] ?? ''), 'cls' => (string)($g['cls'] ?? ''),
+            'z' => in_array($z, ['1', '0'], true) ? $z : '', 'st' => in_array($st, ['Starter', 'Warteliste'], true) ? $st : ''];
+}
+function entry_filter_query(array $f): string { return http_build_query(array_filter($f, fn($v) => $v !== '' && $v !== 0)); }
+// Alle Anmeldungen eines Turniers (mit Durchgang no/sname), sortiert wie in der Anmeldeliste
+function event_entries(array $ev): array {
+    return q("SELECT e.*,s.no,s.name AS sname FROM reg_entries e JOIN reg_sessions s ON s.id=e.session_id WHERE e.event_id=? ORDER BY s.no, e.paid DESC, e.paid_at, e.id", [$ev['id']])->fetchAll();
+}
+// Filtern; die Suche ignoriert Groß-/Kleinschreibung, Akzente und Leerzeichen, mehrere Suchwörter müssen alle vorkommen
+// (Name, Verein, Lizenz, E-Mail, Referenz).
+function filter_entries(array $ev, array $rows, array $f): array {
+    $status = [];
+    if (($f['st'] ?? '') !== '') foreach (q("SELECT id FROM reg_sessions WHERE event_id=?", [$ev['id']]) as $s) {
+        [$a, $b] = lists((int)$s['id']);
+        foreach ($a as $r) $status[$r['id']] = 'Starter';
+        foreach ($b as $r) $status[$r['id']] = 'Warteliste';
+    }
+    $terms = array_values(array_filter(array_map('norm_name', preg_split('/\s+/', trim((string)($f['q'] ?? ''))) ?: []), fn($x) => $x !== ''));
+    $out = [];
+    foreach ($rows as $r) {
+        if (!empty($f['ses']) && (int)$r['session_id'] !== (int)$f['ses']) continue;
+        if (($f['div'] ?? '') !== '' && (string)$r['division'] !== (string)$f['div']) continue;
+        if (($f['cls'] ?? '') !== '' && (string)$r['class'] !== (string)$f['cls']) continue;
+        if (($f['z'] ?? '') !== '' && (int)$r['paid'] !== (int)$f['z']) continue;
+        if (($f['st'] ?? '') !== '' && ($status[$r['id']] ?? '') !== $f['st']) continue;
+        if ($terms) {
+            $hay = norm_name($r['firstname'] . ' ' . $r['lastname'] . ' ' . $r['lastname'] . ' ' . $r['firstname'] . ' ' . $r['club'] . ' ' . $r['license'] . ' ' . $r['email'] . ' ' . ref_code((int)$ev['id'], (int)$r['id']));
+            foreach ($terms as $t) if (!str_contains($hay, $t)) continue 2;
+        }
+        $out[] = $r;
+    }
+    return $out;
+}
+// Zähler je Gruppe: n = Anmeldungen, paid = bezahlt, open = nicht bezahlt, starter / wait = Starterliste / Warteliste
+function event_stats(array $rows, array $status): array {
+    $new = fn() => ['n' => 0, 'paid' => 0, 'open' => 0, 'starter' => 0, 'wait' => 0];
+    $add = function (array &$c, array $r) use ($status) {
+        $c['n']++; if ($r['paid']) $c['paid']++; else $c['open']++;
+        if (($status[$r['id']] ?? '') === 'Starter') $c['starter']++; else $c['wait']++;
+    };
+    $s = ['total' => $new(), 'ses' => [], 'div' => [], 'cls' => [], 'combo' => []];
+    foreach ($rows as $r) {
+        $sid = (int)$r['session_id']; $d = (string)$r['division']; $c = (string)$r['class'];
+        $add($s['total'], $r);
+        if (!isset($s['ses'][$sid])) $s['ses'][$sid] = $new();
+        if (!isset($s['div'][$d])) $s['div'][$d] = $new();
+        if (!isset($s['cls'][$c])) $s['cls'][$c] = $new();
+        if (!isset($s['combo'][$d][$c])) $s['combo'][$d][$c] = $new();
+        $add($s['ses'][$sid], $r); $add($s['div'][$d], $r); $add($s['cls'][$c], $r); $add($s['combo'][$d][$c], $r);
+    }
+    return $s;
+}
+// Klassen-Schlüssel in der Reihenfolge von ianseo, unbekannte am Ende (Schlüssel immer als Text)
+function stat_keys(array $have, array $order): array {
+    $have = array_map('strval', $have); $k = array_map('strval', array_keys($order));
+    foreach ($have as $x) if (!in_array($x, $k, true)) $k[] = $x;
+    return array_values(array_filter($k, fn($x) => in_array($x, $have, true)));
+}
+function stat_label(string $k, array $map): string { return isset($map[$k]) && (string)$map[$k] !== '' ? $k . ' – ' . $map[$k] : $k; }
+// Freitext mit Platzhaltern {vorname} usw. füllen (gleiche Platzhalter wie bei den E-Mail-Texten je Turnier)
+function mail_free(string $tpl, array $vars): string { return fill_vars($tpl, $vars); }
+// Rundmail: $entries = Zeilen aus event_entries(); $tpl = ['de' => ['s' => Betreff, 'b' => Text], 'en' => [...]] (en optional).
+// Gibt [Anzahl gesendet, Fehlerliste] zurück. Pro Anmeldung wird die Sprache der Anmeldung verwendet (Englisch nur, wenn ein englischer Text vorhanden ist).
+function send_mass(array $ev, array $entries, array $tpl, ?string $replyTo, bool $dedupe = true): array {
+    @set_time_limit(0); ignore_user_abort(true);
+    $sent = 0; $errors = []; $seen = [];
+    foreach ($entries as $e) {
+        $to = trim((string)$e['email']);
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) { $errors[] = $e['lastname'] . ' ' . $e['firstname'] . ': ungültige E-Mail-Adresse'; continue; }
+        if ($dedupe) { $k = mb_strtolower($to); if (isset($seen[$k])) continue; $seen[$k] = true; }
+        $lang = (($e['lang'] ?? 'de') === 'en' && trim((string)($tpl['en']['b'] ?? '')) !== '' && trim((string)($tpl['en']['s'] ?? '')) !== '') ? 'en' : 'de';
+        $vars = mail_vars($ev, $e, ['name' => (string)($e['sname'] ?? ''), 'no' => $e['no'] ?? ''], ref_code((int)$ev['id'], (int)$e['id']), $lang);
+        $subject = trim(str_replace(["\r", "\n"], ' ', mail_free((string)$tpl[$lang]['s'], $vars)));
+        $err = send_mail($to, $subject, mail_free((string)$tpl[$lang]['b'], $vars), $replyTo);
+        if ($err === null || str_starts_with($err, 'Mail wurde per mail() gesendet') || str_starts_with($err, 'Mail gesendet, aber')) $sent++;
+        else $errors[] = $e['lastname'] . ' ' . $e['firstname'] . ' (' . $to . '): ' . $err;
+    }
+    return [$sent, $errors];
+}
+
+if (!defined('INSTALLING')) { ensure_schema(); auto_open_events(); }

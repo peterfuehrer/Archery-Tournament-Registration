@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
 require __DIR__ . '/lib.php';
 $events = q("SELECT * FROM reg_events WHERE published=1 ORDER BY id DESC")->fetchAll();
 $ev = null; $eid = (int)($_GET['e'] ?? 0);
@@ -92,7 +92,7 @@ page_head(t('Anmeldung'), $ev && count($events) > 1 ? '<a href="index.php">' . e
 if (!$ev) {
     echo '<h2>' . e(t('Turniere')) . '</h2>';
     if (!$events) echo '<p>' . e(t('Derzeit sind keine Turniere veröffentlicht.')) . '</p>';
-    foreach ($events as $x) echo '<p><a class="big" href="?e=' . $x['id'] . '">' . e($x['title']) . '</a>' . ($x['kind'] === 'oem' ? ' <span class="tag">ÖM/ÖSTM</span>' : '') . ($x['is_open'] ? '' : ' <span class="tag">' . e(t('Anmeldung geschlossen')) . '</span>') . '</p>';
+    foreach ($events as $x) echo '<p><a class="big" href="?e=' . $x['id'] . '">' . e($x['title']) . '</a>' . ($x['kind'] === 'oem' ? ' <span class="tag">ÖM/ÖSTM</span>' : '') . (event_starts_later($x) ? ' <span class="tag">' . e(t('Anmeldung ab %s', fmt_date($x['reg_start']))) . '</span>' : ($x['is_open'] ? '' : ' <span class="tag">' . e(t('Anmeldung geschlossen')) . '</span>')) . '</p>';
     page_foot(); exit;
 }
 event_head($ev);
@@ -107,7 +107,7 @@ if ($done) {
        . ($pp !== '' ? '<p><a class="btn" href="' . e($pp) . '" target="_blank" rel="noopener noreferrer">' . e(t('Alternativ: mit PayPal bezahlen')) . '</a></p><p class="hint">' . e(t('Externer Link zu PayPal. Bitte den Verwendungszweck in der PayPal-Nachricht angeben. Die Zahlung wird manuell bestätigt.')) . '</p>' : '')
        . '</section>';
 }
-if (!$isOpen) echo '<p class="msg err">' . e(t('Die Anmeldung ist geschlossen.')) . '</p>';
+if (!$isOpen) echo '<p class="msg err">' . e(event_starts_later($ev) ? t('Die Anmeldung öffnet am %s.', fmt_date($ev['reg_start'])) : t('Die Anmeldung ist geschlossen.')) . '</p>';
 elseif (!$sessions) echo '<p class="msg err">' . e(t('Für dieses Turnier sind noch keine Durchgänge angelegt.')) . '</p>';
 elseif (!array_filter($sessions, fn($s) => session_is_open($ev, $s))) echo '<p class="msg err">' . e(t('Für alle Durchgänge ist die Anmeldung geschlossen.')) . '</p>';
 else {

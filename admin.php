@@ -1,6 +1,6 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
-const ADMIN_VERSION = '2026.11.08-d';
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
+const ADMIN_VERSION = '2026.11.15-a';
 require __DIR__ . '/lib.php';
 $p = (string)($_GET['p'] ?? 'events');
 if ($p === 'logout') { session_destroy(); go('admin.php'); }
@@ -38,6 +38,7 @@ function statuses(int $eid): array {
 function log_scope(): array {
     $sqlE = "SELECT id,title FROM reg_events";
     if (role() === 'orga') $evs = q("$sqlE WHERE owner_id=? ORDER BY id DESC", [uid()])->fetchAll();
+    elseif (role() === 'auswerter') $evs = q("$sqlE WHERE id IN (SELECT event_id FROM reg_event_scorers WHERE user_id=?) ORDER BY id DESC", [uid()])->fetchAll();
     elseif (role() === 'kassier') $evs = q("$sqlE WHERE id IN (SELECT event_id FROM reg_event_users WHERE user_id=?) ORDER BY id DESC", [uid()])->fetchAll();
     else $evs = q("$sqlE ORDER BY id DESC")->fetchAll();
     $ids = array_map('intval', array_column($evs, 'id'));
@@ -51,6 +52,35 @@ function log_scope(): array {
     return [$evs, $fe, $fa, $fq, $w ? 'WHERE ' . implode(' AND ', $w) : '', $par];
 }
 function dob_val($d): string { return ($d === null || $d === '0000-00-00') ? '' : (string)$d; }
+
+// Rückkehr zur Anmeldeliste mit dem zuletzt gesetzten Filter (Feld "ret" = Filter-Query, wird neu aufgebaut und geprüft)
+function back_entries(array $ev): string {
+    parse_str((string)($_POST['ret'] ?? ''), $q); $qs = entry_filter_query(entry_filter_params(is_array($q) ? $q : []));
+    return 'admin.php?p=entries&id=' . (int)$ev['id'] . ($qs !== '' ? '&' . $qs : '');
+}
+// Filterleiste: Suche, Durchgang, Bogenklasse, Altersklasse, Zahlung, Status. $page = 'entries' oder 'mail'
+function filter_form(array $ev, string $page, array $all, array $f, string $btn): string {
+    $opt = ianseo_opts((int)$ev['to_id']);
+    $sel = function (string $name, string $label, array $items, string $cur): string {
+        $h = '<label>' . $label . '<select name="' . $name . '"><option value="">alle</option>';
+        foreach ($items as $k => $v) $h .= '<option value="' . e($k) . '"' . ((string)$k === $cur ? ' selected' : '') . '>' . e($v) . '</option>';
+        return $h . '</select></label>';
+    };
+    $ses = []; foreach (q("SELECT * FROM reg_sessions WHERE event_id=? ORDER BY no", [$ev['id']]) as $x) $ses[$x['id']] = $x['no'] . ($x['name'] !== '' ? ' – ' . $x['name'] : '');
+    $div = []; foreach (stat_keys(array_column($all, 'division'), $opt['div']) as $k) $div[$k] = stat_label($k, $opt['div']);
+    $cls = []; foreach (stat_keys(array_column($all, 'class'), $opt['cls']) as $k) $cls[$k] = stat_label($k, $opt['cls']);
+    $on = entry_filter_query($f) !== '';
+    return '<form method="get" class="box filt"><input type="hidden" name="p" value="' . e($page) . '"><input type="hidden" name="id" value="' . (int)$ev['id'] . '">'
+        . '<label class="grow">Suche<input type="search" name="q" value="' . e($f['q']) . '" placeholder="Name, Verein, Lizenz, E-Mail, Referenz …"></label>'
+        . $sel('ses', 'Durchgang', $ses, (string)$f['ses']) . $sel('div', 'Bogenklasse', $div, (string)$f['div']) . $sel('cls', 'Altersklasse', $cls, (string)$f['cls'])
+        . $sel('z', 'Zahlung', ['1' => 'bezahlt', '0' => 'nicht bezahlt'], (string)$f['z']) . $sel('st', 'Status', ['Starter' => 'Starter', 'Warteliste' => 'Warteliste'], (string)$f['st'])
+        . '<button class="sm">' . e($btn) . '</button>' . ($on ? ' <a href="?p=' . e($page) . '&id=' . (int)$ev['id'] . '">Zurücksetzen</a>' : '') . '</form>';
+}
+// Daten für Statistik und Statistik-CSV: [Zähler, Klassen-Bezeichnungen aus ianseo, Durchgänge, gefilterte Anmeldungen]
+function stats_data(array $ev, array $f): array {
+    $rows = filter_entries($ev, event_entries($ev), $f);
+    return [event_stats($rows, statuses((int)$ev['id'])), ianseo_opts((int)$ev['to_id']), q("SELECT * FROM reg_sessions WHERE event_id=? ORDER BY no", [$ev['id']])->fetchAll(), $rows];
+}
 
 // ---- Aktionen ---------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -86,12 +116,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (Throwable $x) { flash($x->getMessage(), 'err'); }
             $url = trim((string)($_POST['doc_url'] ?? ''));
             if ($url !== '' && !preg_match('#^https?://#i', $url)) { flash('Link zur Ausschreibung muss mit http:// oder https:// beginnen.', 'err'); $url = ''; }
-            q("UPDATE reg_events SET title=?,info=?,pay_info=?,ref_text=?,is_open=?,published=?,deadline=?,kind=?,owner_id=?,doc=?,doc_url=?,logo=?,allow_nolic=?,paypal_me=?,fee=?,mail_tpl=? WHERE id=?",
+            $rs = trim((string)($_POST['reg_start'] ?? '')); $rs = preg_match('/^\d{4}-\d{2}-\d{2}$/', $rs) ? $rs : null;       // Anmeldestart
+            $dlv = trim((string)($_POST['deadline'] ?? ''));
+            if ($rs && $dlv !== '' && $rs > $dlv) { flash('Der Anmeldestart liegt nach dem Anmeldeschluss und wurde nicht gespeichert.', 'err'); $rs = null; }
+            $autoOpen = (isset($_POST['auto_open']) && !isset($_POST['is_open'])) ? 1 : 0;
+            if ($autoOpen && (!$rs || $rs < date('Y-m-d'))) { if (isset($_POST['auto_open'])) flash('Automatisches Öffnen braucht einen Anmeldestart (heute oder später) und wurde nicht aktiviert.', 'err'); $autoOpen = 0; }
+            q("UPDATE reg_events SET title=?,info=?,pay_info=?,ref_text=?,is_open=?,published=?,deadline=?,kind=?,owner_id=?,doc=?,doc_url=?,logo=?,allow_nolic=?,paypal_me=?,fee=?,mail_tpl=?,reg_start=?,auto_open=? WHERE id=?",
               [trim((string)$_POST['title']), trim((string)$_POST['info']), trim((string)$_POST['pay_info']), trim((string)$_POST['ref_text']), isset($_POST['is_open']) ? 1 : 0, isset($_POST['published']) ? 1 : 0,
-               ($_POST['deadline'] ?? '') ?: null, ($_POST['kind'] ?? '') === 'oem' ? 'oem' : 'normal', $owner, $doc, $url, $logo, isset($_POST['allow_nolic']) ? 1 : 0, mb_substr((string)preg_replace('~[^A-Za-z0-9._/:-]~', '', trim((string)($_POST['paypal_me'] ?? ''))), 0, 80), mb_substr((string)preg_replace('/[^0-9.,]/', '', (string)($_POST['fee'] ?? '')), 0, 12), $tpl, $id]);
+               ($_POST['deadline'] ?? '') ?: null, ($_POST['kind'] ?? '') === 'oem' ? 'oem' : 'normal', $owner, $doc, $url, $logo, isset($_POST['allow_nolic']) ? 1 : 0, mb_substr((string)preg_replace('~[^A-Za-z0-9._/:-]~', '', trim((string)($_POST['paypal_me'] ?? ''))), 0, 80), mb_substr((string)preg_replace('/[^0-9.,]/', '', (string)($_POST['fee'] ?? '')), 0, 12), $tpl, $rs, $autoOpen, $id]);
             q("DELETE FROM reg_event_users WHERE event_id=?", [$id]);                       // Kassiere freigeben
             foreach ((array)($_POST['kassier'] ?? []) as $k)
                 if (q("SELECT 1 FROM reg_users WHERE id=? AND role='kassier'", [(int)$k])->fetch()) q("INSERT IGNORE INTO reg_event_users (event_id,user_id) VALUES (?,?)", [$id, (int)$k]);
+            if (is_admin() || role() === 'orga') {                                          // Auswerter (höchstens 3): nur Administrator und Organisationsleitung vergeben sie
+                $aw = array_values(array_unique(array_map('intval', (array)($_POST['auswerter'] ?? []))));
+                if (count($aw) > 3) { flash('Höchstens 3 Auswerter je Turnier – es wurden nur die ersten 3 übernommen.', 'err'); $aw = array_slice($aw, 0, 3); }
+                q("DELETE FROM reg_event_scorers WHERE event_id=?", [$id]);
+                foreach ($aw as $k) if (q("SELECT 1 FROM reg_users WHERE id=? AND role='auswerter'", [$k])->fetch()) q("INSERT IGNORE INTO reg_event_scorers (event_id,user_id) VALUES (?,?)", [$id, $k]);
+            }
             $o = ianseo_opts((int)$ev['to_id']);
             foreach (range(1, 10) as $n) {
                 $row = $_POST['s'][$n] ?? [];
@@ -113,21 +154,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             log_event('turnier_geloescht', null, null, $ev['title']);
             delete_upload($ev['doc']); delete_upload($ev['logo']);
             q("DELETE FROM reg_entries WHERE event_id=?", [$id]); q("DELETE FROM reg_sessions WHERE event_id=?", [$id]);
-            q("DELETE FROM reg_event_users WHERE event_id=?", [$id]); q("DELETE FROM reg_events WHERE id=?", [$id]);
+            q("DELETE FROM reg_event_users WHERE event_id=?", [$id]); q("DELETE FROM reg_event_scorers WHERE event_id=?", [$id]); q("DELETE FROM reg_events WHERE id=?", [$id]);
             flash('Turnier aus der Anmeldung entfernt. Die Daten in ianseo wurden nicht verändert.'); go('admin.php');
         case 'paid':
             $en = $entry($id); $ev = get_event((int)$en['event_id']); if (!can_cash($ev)) deny();
             $paid = (int)($_POST['v'] ?? 0) ? 1 : 0;
             q("UPDATE reg_entries SET paid=?, paid_at=? WHERE id=?", [$paid, $paid ? date('Y-m-d H:i:s') : null, $id]);
             log_event($paid ? 'bezahlt' : 'zurueck', (int)$ev['id'], $id, $en['lastname'] . ' ' . $en['firstname']);
-            $report(sync_event((int)$ev['id'])); go('admin.php?p=entries&id=' . $ev['id']);
+            $report(sync_event((int)$ev['id'])); go(back_entries($ev));
         case 'del_entry':
             $en = $entry($id); $ev = get_event((int)$en['event_id']); if (!can_cash($ev)) deny();
             try {
                 if ($en['en_id']) ianseo_remove((int)$ev['to_id'], (int)$en['en_id']);
                 q("DELETE FROM reg_entries WHERE id=?", [$id]); log_event('geloescht', (int)$ev['id'], $id, $en['lastname'] . ' ' . $en['firstname'] . ' (' . ref_code((int)$ev['id'], $id) . ')'); $report(sync_event((int)$ev['id'])); flash('Gelöscht, Nachrücker abgeglichen.');
             } catch (Throwable $x) { flash($x->getMessage(), 'err'); }
-            go('admin.php?p=entries&id=' . $ev['id']);
+            go(back_entries($ev));
         case 'move':
             $en = $entry($id); $ev = get_event((int)$en['event_id']); if (!can_cash($ev)) deny();
             $to = q("SELECT * FROM reg_sessions WHERE id=? AND event_id=?", [(int)($_POST['sid'] ?? 0), $ev['id']])->fetch();
@@ -144,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $report(sync_event((int)$ev['id'])); flash('Verschoben.');
                 } catch (Throwable $x) { flash($x->getMessage(), 'err'); }
             }
-            go('admin.php?p=entries&id=' . $ev['id']);
+            go(back_entries($ev));
         case 'save_entry':
             $en = $entry($id); $ev = get_event((int)$en['event_id']); if (!can_cash($ev)) deny();
             $n = fn($k) => trim((string)($_POST[$k] ?? ''));
@@ -174,6 +215,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 catch (Throwable $x) { flash('Gespeichert, aber ianseo-Update fehlgeschlagen: ' . $x->getMessage(), 'err'); }
             } else flash('Gespeichert.');
             go('admin.php?p=entries&id=' . $ev['id']);
+        case 'send_mass':        // Rundmail an ausgewählte Anmeldungen (Administrator, Organisationsleitung, freigegebener Kassier)
+            $ev = get_event($id); if (!can_cash($ev)) deny();
+            $f = entry_filter_params($_POST); $fq = entry_filter_query($f);
+            $back = 'admin.php?p=mail&id=' . $id . ($fq !== '' ? '&' . $fq : '');
+            $tpl = ['de' => ['s' => trim((string)($_POST['s_de'] ?? '')), 'b' => trim((string)($_POST['b_de'] ?? ''))],
+                    'en' => ['s' => trim((string)($_POST['s_en'] ?? '')), 'b' => trim((string)($_POST['b_en'] ?? ''))]];
+            $_SESSION['mass_draft'][$id] = ['tpl' => $tpl, 'dedupe' => !empty($_POST['dedupe']), 'copy' => !empty($_POST['copy'])];     // Entwurf bleibt bei Fehlern erhalten
+            if ($tpl['de']['s'] === '' || $tpl['de']['b'] === '') { flash('Betreff und Text (Deutsch) sind nötig.', 'err'); go($back); }
+            if (($tpl['en']['s'] === '') !== ($tpl['en']['b'] === '')) { flash('Englische Fassung: Betreff UND Text ausfüllen oder beides leer lassen.', 'err'); go($back); }
+            if (empty(mail_cfg()['enabled'])) { flash('E-Mail-Versand ist nicht aktiviert (Einstellungen → Mailserver).', 'err'); go($back); }
+            $ids = array_flip(array_map('intval', (array)($_POST['sel'] ?? [])));
+            $sel = array_values(array_filter(event_entries($ev), fn($r) => isset($ids[(int)$r['id']])));
+            if (!$sel) { flash('Keine Empfänger ausgewählt.', 'err'); go($back); }
+            if (count($sel) > 500) { flash('Höchstens 500 Anmeldungen pro Rundmail – bitte nach Durchgang oder Bogenklasse aufteilen.', 'err'); go($back); }
+            $me = q("SELECT email FROM reg_users WHERE id=?", [uid()])->fetch();
+            $own = ($me && filter_var($me['email'], FILTER_VALIDATE_EMAIL)) ? (string)$me['email'] : null;
+            $ow = owner_of($ev);
+            $reply = $own ?? (($ow && filter_var($ow['email'], FILTER_VALIDATE_EMAIL)) ? (string)$ow['email'] : null);       // Antworten gehen an dich bzw. die Organisationsleitung
+            $pre = fn(string $x) => ['de' => ['s' => $x . $tpl['de']['s'], 'b' => $tpl['de']['b']], 'en' => ['s' => $tpl['en']['s'] !== '' ? $x . $tpl['en']['s'] : '', 'b' => $tpl['en']['b']]];
+            if (!empty($_POST['test'])) {        // nur Testmail an die eigene Adresse (mit den Daten des ersten Empfängers)
+                if (!$own) { flash('In deinem Konto ist keine gültige E-Mail-Adresse hinterlegt (Mein Konto).', 'err'); go($back); }
+                $t = $sel[0]; $t['email'] = $own;
+                [$n, $er] = send_mass($ev, [$t], $pre('[Test] '), null, false);
+                flash($n ? 'Testmail an ' . $own . ' gesendet (Platzhalter mit den Daten von ' . $t['firstname'] . ' ' . $t['lastname'] . ').' : 'Testmail fehlgeschlagen: ' . implode(' ', $er), $n ? 'ok' : 'err'); go($back);
+            }
+            [$n, $er] = send_mass($ev, $sel, $tpl, $reply, !empty($_POST['dedupe']));
+            if ($n > 0 && !empty($_POST['copy']) && $own) { $t = $sel[0]; $t['email'] = $own; send_mass($ev, [$t], $pre('[Kopie] '), null, false); }
+            log_event('rundmail', (int)$ev['id'], null, '„' . mb_substr($tpl['de']['s'], 0, 80) . '“ an ' . $n . ' Empfänger' . ($fq !== '' ? ' (Filter: ' . urldecode($fq) . ')' : '') . ($er ? ', ' . count($er) . ' Fehler' : ''));
+            flash('Rundmail: ' . $n . ($n === 1 ? ' E-Mail' : ' E-Mails') . ' gesendet' . ($er ? ', ' . count($er) . ' fehlgeschlagen' : '') . '.', $er ? 'err' : 'ok');
+            foreach (array_slice($er, 0, 5) as $x) flash($x, 'err');
+            if (!$er) unset($_SESSION['mass_draft'][$id]);
+            go($back);
         case 'sync':
             $ev = get_event($id); if (!can_view($ev)) deny();
             $report(sync_event($id)); flash('Abgleich mit ianseo durchgeführt.'); go('admin.php?p=entries&id=' . $id);
@@ -196,7 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'del_user':
             if (!is_admin()) deny();
             if ($id === uid()) flash('Du kannst dich nicht selbst löschen.', 'err');
-            else { q("UPDATE reg_events SET owner_id=NULL WHERE owner_id=?", [$id]); q("DELETE FROM reg_event_users WHERE user_id=?", [$id]); q("DELETE FROM reg_users WHERE id=?", [$id]); }
+            else { q("UPDATE reg_events SET owner_id=NULL WHERE owner_id=?", [$id]); q("DELETE FROM reg_event_users WHERE user_id=?", [$id]); q("DELETE FROM reg_event_scorers WHERE user_id=?", [$id]); q("DELETE FROM reg_users WHERE id=?", [$id]); }
             go('admin.php?p=users');
         case 'import_master':
             if (!is_admin()) deny();
@@ -234,8 +307,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = athlete_sync_event($id); log_event('abgleich', $id, null, $msg); flash($msg); go('admin.php?p=entries&id=' . $id);
         case 'toggle_event':
             $ev = get_event($id); if (!can_event($ev)) deny();
-            q("UPDATE reg_events SET is_open=? WHERE id=?", [$ev['is_open'] ? 0 : 1, $id]); log_event($ev['is_open'] ? 'turnier_zu' : 'turnier_auf', $id, null, $ev['title']);
-            flash($ev['is_open'] ? 'Anmeldung für das Turnier geschlossen.' : 'Anmeldung für das Turnier geöffnet.');
+            $wasWaiting = event_starts_later($ev);                          // Anmeldestart noch nicht erreicht: manuelles Öffnen = jetzt öffnen
+            $open = ($ev['is_open'] && !$wasWaiting) ? 0 : 1;
+            q("UPDATE reg_events SET is_open=?, auto_open=0" . ($open && $wasWaiting ? ", reg_start=NULL" : "") . " WHERE id=?", [$open, $id]);
+            log_event($open ? 'turnier_auf' : 'turnier_zu', $id, null, $ev['title']);
+            flash($open ? 'Anmeldung für das Turnier geöffnet.' . ($wasWaiting ? ' Der Anmeldestart (' . fmt_date($ev['reg_start']) . ') wurde entfernt.' : '') : 'Anmeldung für das Turnier geschlossen.');
             go(($_POST['back'] ?? '') === 'entries' ? 'admin.php?p=entries&id=' . $id : 'admin.php');
         case 'toggle_session':
             $sx = q("SELECT * FROM reg_sessions WHERE id=?", [$id])->fetch(); if (!$sx) go('admin.php');
@@ -357,9 +433,26 @@ if ($p === 'csv') {
     $o = fopen('php://output', 'w'); fwrite($o, "\xEF\xBB\xBF");
     $cell = fn($v) => preg_match('/^[=+\-@\t\r]/', (string)$v) ? "'" . $v : $v;      // CSV-Injection vermeiden
     fputcsv($o, ['Referenz', 'Status', 'Durchgang', 'Nachname', 'Vorname', 'Geschlecht', 'Geburtsdatum', 'Verein', 'Vereinsnummer', 'Land', 'Lizenz', 'E-Mail', 'Bogenklasse', 'Altersklasse', 'Bezahlt', 'Bezahlt am', 'Nachweis-Typ', 'Turnier 1', 'Turnier 2', 'Turnier 3', 'ÖM-Jahr', 'ÖM-Turnier', 'Angemeldet am', 'Zustimmung Datenschutz am', 'Zustimmung Foto/Film'], ';', '"', '');
-    foreach (q("SELECT e.*,s.no FROM reg_entries e JOIN reg_sessions s ON s.id=e.session_id WHERE e.event_id=? ORDER BY s.no, e.paid DESC, e.paid_at, e.id", [$ev['id']]) as $r)
+    foreach (filter_entries($ev, event_entries($ev), entry_filter_params($_GET)) as $r)
         fputcsv($o, array_map($cell, [ref_code((int)$ev['id'], (int)$r['id']), $status[$r['id']] ?? '', $r['no'], $r['lastname'], $r['firstname'], $r['sex'] ? 'W' : 'M', dob_val($r['dob']), $r['club'], $r['club_code'], $r['country'], $r['license'], $r['email'],
             $r['division'], $r['class'], $r['paid'] ? 'ja' : 'nein', $r['paid_at'], $r['qtype'], $r['q1'], $r['q2'], $r['q3'], $r['qy'], $r['qe'], $r['created'], $r['consent_at'], $r['consent_media'] ? 'ja' : 'nein']), ';', '"', '');
+    exit;
+}
+if ($p === 'statscsv') {
+    $ev = get_event((int)($_GET['id'] ?? 0)); if (!can_view($ev)) deny();
+    [$st, $opt, $sl] = stats_data($ev, entry_filter_params($_GET));
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="statistik-turnier' . $ev['id'] . '-' . date('Ymd') . '.csv"');
+    $o = fopen('php://output', 'w'); fwrite($o, "\xEF\xBB\xBF");
+    $cl = fn($v) => preg_match('/^[=+\-@\t\r]/', (string)$v) ? "'" . $v : $v;      // CSV-Injection vermeiden
+    $line = fn(string $what, string $ses, string $div, string $cls, array $c) => fputcsv($o, array_map($cl, [$what, $ses, $div, $cls, $c['n'], $c['paid'], $c['open'], $c['starter'], $c['wait']]), ';', '"', '');
+    fputcsv($o, ['Auswertung', 'Durchgang', 'Bogenklasse', 'Altersklasse', 'Anmeldungen', 'Bezahlt', 'Nicht bezahlt', 'Starter', 'Warteliste'], ';', '"', '');
+    $line('Gesamt', '', '', '', $st['total']);
+    foreach ($sl as $x) if (isset($st['ses'][$x['id']])) $line('Durchgang', $x['no'] . ($x['name'] !== '' ? ' – ' . $x['name'] : ''), '', '', $st['ses'][$x['id']]);
+    $dk = stat_keys(array_keys($st['div']), $opt['div']); $ck = stat_keys(array_keys($st['cls']), $opt['cls']);
+    foreach ($dk as $d) $line('Bogenklasse', '', stat_label($d, $opt['div']), '', $st['div'][$d]);
+    foreach ($ck as $c) $line('Altersklasse', '', '', stat_label($c, $opt['cls']), $st['cls'][$c]);
+    foreach ($dk as $d) foreach (stat_keys(array_keys($st['combo'][$d]), $opt['cls']) as $c) $line('Kombination', '', stat_label($d, $opt['div']), stat_label($c, $opt['cls']), $st['combo'][$d][$c]);
     exit;
 }
 $nav = '<a href="admin.php">Turniere</a><a href="admin.php?p=log">Protokoll</a>' . (is_admin() ? '<a href="admin.php?p=users">Benutzer</a><a href="admin.php?p=master">Stammdaten</a><a href="admin.php?p=settings">Einstellungen</a><a href="admin.php?p=check">Schema-Check</a><a href="diag.php">Diagnose</a>' : '')
@@ -373,7 +466,7 @@ if ($p === 'logcsv') {
         fputcsv($o, array_map(fn($v) => preg_match('/^[=+\-@\t\r]/', (string)$v) ? "'" . $v : $v, [$r['ts'], $r['title'] ?? '', LOG_ACTIONS[$r['action']] ?? $r['action'], $r['actor'], $r['details']]), ';', '"', '');
     exit;
 }
-$navKey = in_array($p, ['events', 'event', 'entries', 'edit'], true) ? '' : ($p === 'athlete' ? 'master' : $p);               // aktuelle Seite im Menü hervorheben
+$navKey = in_array($p, ['events', 'event', 'entries', 'edit', 'stats', 'mail'], true) ? '' : ($p === 'athlete' ? 'master' : $p);               // aktuelle Seite im Menü hervorheben
 $nav = $navKey === '' ? preg_replace('~<a href="admin\.php">~', '<a class="on" href="admin.php">', $nav, 1)
      : preg_replace('~<a href="admin\.php\?p=' . preg_quote($navKey, '~') . '([&"])~', '<a class="on" href="admin.php?p=' . $navKey . '$1', $nav, 1);
 page_head('Backend', $nav);
@@ -383,15 +476,16 @@ try {
 if ($p === 'events') {
     $sql = "SELECT v.*,u.username,u.fullname FROM reg_events v LEFT JOIN reg_users u ON u.id=v.owner_id";
     if (role() === 'orga') $rows = q("$sql WHERE v.owner_id=? ORDER BY v.id DESC", [uid()])->fetchAll();
+    elseif (role() === 'auswerter') $rows = q("$sql WHERE v.id IN (SELECT event_id FROM reg_event_scorers WHERE user_id=?) ORDER BY v.id DESC", [uid()])->fetchAll();
     elseif (role() === 'kassier') $rows = q("$sql WHERE v.id IN (SELECT event_id FROM reg_event_users WHERE user_id=?) ORDER BY v.id DESC", [uid()])->fetchAll();
     else $rows = q("$sql ORDER BY v.id DESC")->fetchAll();
     echo '<h2>Turniere</h2><div class="box scroll"><table><thead><tr><th>Titel</th><th>Status</th><th>Organisationsleitung</th><th></th></tr></thead><tbody>';
-    if (!$rows) echo '<tr><td colspan="4" class="empty">Keine Turniere' . (role() === 'kassier' ? ' freigegeben' : '') . '.</td></tr>';
+    if (!$rows) echo '<tr><td colspan="4" class="empty">Keine Turniere' . (in_array(role(), ['kassier', 'auswerter'], true) ? ' zugewiesen' : '') . '.</td></tr>';
     foreach ($rows as $r) {
-        echo '<tr><td>' . e($r['title']) . ($r['kind'] === 'oem' ? ' <span class="tag">ÖM/ÖSTM</span>' : '') . '</td><td><span class="tag">' . ($r['published'] ? 'öffentlich' : 'unveröffentlicht') . '</span> <span class="tag ' . (event_is_open($r) ? 'paid' : 'open') . '">' . (!$r['is_open'] ? 'geschlossen' : (event_is_open($r) ? 'Anmeldung offen' : 'geschlossen (Anmeldeschluss)')) . '</span></td>'
+        echo '<tr><td>' . e($r['title']) . ($r['kind'] === 'oem' ? ' <span class="tag">ÖM/ÖSTM</span>' : '') . '</td><td><span class="tag">' . ($r['published'] ? 'öffentlich' : 'unveröffentlicht') . '</span> <span class="tag ' . (event_is_open($r) ? 'paid' : 'open') . '">' . (event_state($r) === 'offen' ? 'Anmeldung offen' : event_state($r)) . '</span></td>'
            . '<td>' . e($r['fullname'] ?: $r['username'] ?: '–') . '</td><td>'
-           . (can_event($r) ? '<a href="?p=event&id=' . $r['id'] . '">Einstellungen</a> · ' : '') . '<a href="?p=entries&id=' . $r['id'] . '">Anmeldungen</a> · <a href="?p=csv&id=' . $r['id'] . '">CSV</a>'
-           . (can_event($r) ? ' · <form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="toggle_event"><input type="hidden" name="id" value="' . $r['id'] . '"><button class="sm ghost">' . ($r['is_open'] ? 'Anmeldung schließen' : 'Anmeldung öffnen') . '</button></form>' : '')
+           . (can_event($r) ? '<a href="?p=event&id=' . $r['id'] . '">Einstellungen</a> · ' : '') . '<a href="?p=entries&id=' . $r['id'] . '">Anmeldungen</a> · <a href="?p=stats&id=' . $r['id'] . '">Statistik</a> · <a href="?p=csv&id=' . $r['id'] . '">CSV</a>' . (can_cash($r) ? ' · <a href="?p=mail&id=' . $r['id'] . '">Rundmail</a>' : '')
+           . (can_event($r) ? ' · <form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="toggle_event"><input type="hidden" name="id" value="' . $r['id'] . '"><button class="sm ghost">' . (event_starts_later($r) ? 'Jetzt öffnen' : ($r['is_open'] ? 'Anmeldung schließen' : 'Anmeldung öffnen')) . '</button></form>' : '')
            . (can_event($r) ? ' · <form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="del_event"><input type="hidden" name="id" value="' . $r['id'] . '"><button class="sm dng" onclick="return confirm(\'Turnier samt allen Anmeldungen aus der Anmeldung entfernen? Daten in ianseo bleiben unverändert. Vorher CSV exportieren!\')">Entfernen</button></form>' : '')
            . '</td></tr>';
     }
@@ -416,25 +510,28 @@ if ($p === 'event') {
     <div class="box grid">
       <label class="wide">Titel<input name="title" value="<?= e($ev['title']) ?>" required></label>
       <label>Art<select name="kind"><option value="normal" <?= $ev['kind'] === 'oem' ? '' : 'selected' ?>>Normales Turnier</option><option value="oem" <?= $ev['kind'] === 'oem' ? 'selected' : '' ?>>ÖM/ÖSTM (mit Nachweis)</option></select></label>
-      <label>Anmeldeschluss (Anmeldung möglich bis einschließlich 23:59 Uhr dieses Tages)<input type="date" name="deadline" value="<?= e($ev['deadline']) ?>"></label>
-      <div class="wide checks">
+      <label>Anmeldestart (optional)<input type="date" name="reg_start" value="<?= e($ev['reg_start'] ?? '') ?>"><small class="hint">Vor diesem Tag ist keine Anmeldung möglich.</small></label>
+      <label>Anmeldeschluss<input type="date" name="deadline" value="<?= e($ev['deadline']) ?>"><small class="hint">Anmeldung möglich bis einschließlich 23:59 Uhr dieses Tages.</small></label>
+      <div class="wide checks col">
         <label class="chk"><input type="checkbox" name="is_open" <?= $ev['is_open'] ? 'checked' : '' ?>> Anmeldung offen</label>
+        <label class="chk"><input type="checkbox" name="auto_open" <?= !empty($ev['auto_open']) ? 'checked' : '' ?>> Zum Anmeldestart automatisch auf „Anmeldung offen“ schalten</label>
         <label class="chk"><input type="checkbox" name="published" <?= $ev['published'] ? 'checked' : '' ?>> Öffentlich sichtbar</label>
-        <label class="chk"><input type="checkbox" name="allow_nolic" <?= $ev['allow_nolic'] ? 'checked' : '' ?>> Lizenzfreie Teilnahme möglich (Haken „Keine Lizenz“, Nummern LL1, LL2 …)</label>
+        <label class="chk"><input type="checkbox" name="allow_nolic" <?= $ev['allow_nolic'] ? 'checked' : '' ?>> Lizenzfreie Teilnahme möglich</label>
       </div>
+      <p class="info wide">Mit Anmeldestart ist die Anmeldung erst ab diesem Tag möglich. „Automatisch auf offen schalten“ setzt „Anmeldung offen“ am Anmeldestart selbst (einmalig, ein späteres manuelles Schließen bleibt bestehen); die Option gilt, solange „Anmeldung offen“ nicht angehakt ist. Lizenzfreie Teilnahme: Haken „Keine Lizenz“ im Formular, Nummern LL1, LL2 …</p>
     </div>
     <h3>Texte</h3>
     <div class="box grid">
       <label class="wide">Infotext (öffentlich)<textarea name="info" rows="3"><?= e($ev['info']) ?></textarea></label>
-      <label class="wide">Verwendungszweck (Freitext; Platzhalter {ref} {vorname} {nachname}; leer = Referenznummer)<input name="ref_text" maxlength="200" value="<?= e($ev['ref_text']) ?>" placeholder="z. B. Krampusturnier 2026 {nachname} {vorname}"></label>
-      <label class="wide">Zahlungsinfo (IBAN, Betrag … – wird nach der Anmeldung gezeigt)<textarea name="pay_info" rows="3"><?= e($ev['pay_info']) ?></textarea></label>
-      <label>Startgeld in EUR (optional, für den PayPal-Link)<input name="fee" maxlength="12" inputmode="decimal" value="<?= e($ev['fee']) ?>" placeholder="z. B. 25,00"></label>
-      <label>PayPal.Me-Name (optional, alternative Zahlung)<input name="paypal_me" maxlength="80" value="<?= e($ev['paypal_me']) ?>" placeholder="z. B. paypal.me/meinverein"></label>
+      <label class="wide">Verwendungszweck<input name="ref_text" maxlength="200" value="<?= e($ev['ref_text']) ?>" placeholder="z. B. Krampusturnier 2026 {nachname} {vorname}"><small class="hint">Freitext mit den Platzhaltern {ref} {vorname} {nachname}. Leer = Referenznummer.</small></label>
+      <label class="wide">Zahlungsinfo<textarea name="pay_info" rows="3"><?= e($ev['pay_info']) ?></textarea><small class="hint">IBAN, Betrag … – wird nach der Anmeldung gezeigt.</small></label>
+      <label>Nenngeld in EUR<input name="fee" maxlength="12" inputmode="decimal" value="<?= e($ev['fee']) ?>" placeholder="z. B. 25,00"><small class="hint">Optional. Für den PayPal-Link und die Mail-Variable {nenngeld}.</small></label>
+      <label>PayPal.Me-Name<input name="paypal_me" maxlength="80" value="<?= e($ev['paypal_me']) ?>" placeholder="z. B. paypal.me/meinverein"><small class="hint">Optional, alternative Zahlung.</small></label>
     </div>
     <h3>E-Mail-Texte (optional)</h3>
     <?php $tp = json_decode((string)($ev['mail_tpl'] ?? ''), true) ?: []; $tv = fn($k, $l, $f) => e($tp[$k][$l][$f] ?? ''); ?>
     <div class="box">
-      <p class="info">Leer = Standardtext. Platzhalter: <code>{vorname}</code> <code>{nachname}</code> <code>{name}</code> <code>{turnier}</code> <code>{durchgang}</code> <code>{ref}</code> <code>{verwendungszweck}</code> <code>{zahlungsinfo}</code> <code>{paypal}</code> <code>{verein}</code> <code>{lizenz}</code> <code>{bogenklasse}</code> <code>{altersklasse}</code> <code>{anmeldeschluss}</code> <code>{organisation}</code>. Ist nur eine Sprache ausgefüllt, wird sie auch für die andere verwendet. Reiner Text, Zeilenumbrüche bleiben erhalten. Nach dem Speichern kannst du unten eine Testmail an dich senden.</p>
+      <p class="info">Leer = Standardtext. Platzhalter: <code>{vorname}</code> <code>{nachname}</code> <code>{name}</code> <code>{turnier}</code> <code>{durchgang}</code> <code>{ref}</code> <code>{verwendungszweck}</code> <code>{zahlungsinfo}</code> <code>{paypal}</code> <code>{verein}</code> <code>{lizenz}</code> <code>{bogenklasse}</code> <code>{altersklasse}</code> <code>{anmeldeschluss}</code> <code>{anmeldestart}</code> <code>{nenngeld}</code> <code>{organisation}</code> (Groß-/Kleinschreibung egal). Ist nur eine Sprache ausgefüllt, wird sie auch für die andere verwendet. Reiner Text, Zeilenumbrüche bleiben erhalten. Nach dem Speichern kannst du unten eine Testmail an dich senden.</p>
       <?php foreach (['reg' => 'E-Mail nach der Anmeldung (Eingangsbestätigung)', 'ok' => 'E-Mail bei bestätigtem Startplatz (nach Zahlungseingang)'] as $k => $lbl) { ?>
       <fieldset><legend><?= e($lbl) ?></legend><div class="grid">
         <label>Betreff (Deutsch)<input name="tpl[<?= $k ?>][de][s]" maxlength="200" value="<?= $tv($k, 'de', 's') ?>" placeholder="Standard: Anmeldung eingegangen: {turnier}"></label>
@@ -462,6 +559,13 @@ if ($p === 'event') {
         if (!$ks) echo '<span class="empty">Noch keine Benutzer mit der Rolle Kassier angelegt.</span>';
         foreach ($ks as $u) echo '<label class="chk"><input type="checkbox" name="kassier[]" value="' . $u['id'] . '"' . (in_array($u['id'], $assigned) ? ' checked' : '') . '> ' . e($u['fullname'] ?: $u['username']) . '</label>'; ?>
       </div></div>
+      <?php if (is_admin() || role() === 'orga') { ?><div class="wide"><strong>Auswerter für dieses Turnier (höchstens 3)</strong>
+        <p class="info">Gleiche Rechte wie die Organisationsleitung für dieses Turnier. Auswerter werden auf der öffentlichen Seite nicht angezeigt.</p><div class="divs">
+        <?php $au = q("SELECT id,username,fullname FROM reg_users WHERE role='auswerter' ORDER BY fullname")->fetchAll();
+        $asg = array_map('intval', q("SELECT user_id FROM reg_event_scorers WHERE event_id=?", [$ev['id']])->fetchAll(PDO::FETCH_COLUMN));
+        if (!$au) echo '<span class="empty">Noch keine Benutzer mit der Rolle Auswerter angelegt (Benutzer → Neuen Benutzer anlegen).</span>';
+        foreach ($au as $u) echo '<label class="chk"><input type="checkbox" class="awc" name="auswerter[]" value="' . $u['id'] . '"' . (in_array((int)$u['id'], $asg, true) ? ' checked' : '') . ' onchange="if(document.querySelectorAll(\'.awc:checked\').length>3){this.checked=false;alert(\'Höchstens 3 Auswerter je Turnier.\')}"> ' . e($u['fullname'] ?: $u['username']) . '</label>'; ?>
+      </div></div><?php } ?>
     </div>
     <h3>Durchgänge (max. 10)</h3>
     <?php $ia = q("SELECT SesOrder FROM Session WHERE SesTournament=? AND SesType='Q' ORDER BY SesOrder", [$ev['to_id']])->fetchAll(PDO::FETCH_COLUMN); ?>
@@ -501,25 +605,29 @@ if ($p === 'entries') {
     $cash = can_cash($ev); $oem = $ev['kind'] === 'oem';
     $status = statuses((int)$ev['id']);
     event_head($ev);
+    $f = entry_filter_params($_GET); $fq = entry_filter_query($f);                    // Filter und Suche (GET)
+    $allRows = event_entries($ev); $rows = filter_entries($ev, $allRows, $f);
     if (can_event($ev)) {                                               // Anmeldung je Durchgang öffnen/schließen (Administrator, Organisationsleitung)
         $sx = q("SELECT * FROM reg_sessions WHERE event_id=? ORDER BY no", [$ev['id']])->fetchAll();
         $tg = fn($a, $i, $label) => '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="' . $a . '"><input type="hidden" name="id" value="' . $i . '"><input type="hidden" name="back" value="entries"><button class="sm ghost">' . $label . '</button></form>';
-        echo '<div class="box"><h4>Anmeldung öffnen / schließen</h4><div class="kv"><span>Gesamtes Turnier</span><div><span class="tag ' . (event_is_open($ev) ? 'paid' : 'open') . '">' . (!$ev['is_open'] ? 'geschlossen' : (event_is_open($ev) ? 'offen' : 'geschlossen (Anmeldeschluss erreicht)')) . '</span> ' . $tg('toggle_event', $ev['id'], $ev['is_open'] ? 'Anmeldung schließen' : 'Anmeldung öffnen') . '</div></div>'
+        echo '<div class="box"><h4>Anmeldung öffnen / schließen</h4><div class="kv"><span>Gesamtes Turnier</span><div><span class="tag ' . (event_is_open($ev) ? 'paid' : 'open') . '">' . event_state($ev) . '</span> ' . $tg('toggle_event', $ev['id'], event_starts_later($ev) ? 'Jetzt öffnen' : ($ev['is_open'] ? 'Anmeldung schließen' : 'Anmeldung öffnen')) . '</div></div>'
            . '<div class="scroll"><table><thead><tr><th>Durchgang</th><th>Anmeldung</th><th></th></tr></thead><tbody>';
-        foreach ($sx as $x) echo '<tr><td>' . $x['no'] . ($x['name'] ? ' – ' . e($x['name']) : '') . '</td><td><span class="tag ' . (session_is_open($ev, $x) ? 'paid' : 'open') . '">' . (session_is_open($ev, $x) ? 'offen' : (!empty($x['closed']) ? 'geschlossen' : 'geschlossen (Anmeldeschluss)')) . '</span></td><td>' . $tg('toggle_session', $x['id'], !empty($x['closed']) ? 'Anmeldung öffnen' : 'Anmeldung schließen') . '</td></tr>';
+        foreach ($sx as $x) echo '<tr><td>' . $x['no'] . ($x['name'] ? ' – ' . e($x['name']) : '') . '</td><td><span class="tag ' . (session_is_open($ev, $x) ? 'paid' : 'open') . '">' . (session_is_open($ev, $x) ? 'offen' : (!empty($x['closed']) ? 'geschlossen' : (event_is_open($ev) ? 'geschlossen (Anmeldeschluss)' : event_state($ev)))) . '</span></td><td>' . $tg('toggle_session', $x['id'], !empty($x['closed']) ? 'Anmeldung öffnen' : 'Anmeldung schließen') . '</td></tr>';
         echo '</tbody></table></div></div>';
     }
     echo '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="sync"><input type="hidden" name="id" value="' . $ev['id'] . '"><button class="sm">Mit ianseo abgleichen</button></form> '
        . ($cash && athletes_loaded() ? '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="athlete_sync"><input type="hidden" name="id" value="' . $ev['id'] . '"><button class="sm">Schützenabgleich (Lizenzen)</button></form> ' : '')
-       . '<a href="?p=csv&id=' . $ev['id'] . '">CSV exportieren</a> · <a href="?p=log&id=' . $ev['id'] . '">Protokoll</a>'
+       . '<a href="?p=csv&id=' . $ev['id'] . ($fq !== '' ? '&' . $fq : '') . '">CSV exportieren' . ($fq !== '' ? ' (gefiltert)' : '') . '</a> · <a href="?p=stats&id=' . $ev['id'] . '">Statistik</a> · '
+       . ($cash ? '<a href="?p=mail&id=' . $ev['id'] . ($fq !== '' ? '&' . $fq : '') . '">Rundmail' . ($fq !== '' ? ' an Filterauswahl' : '') . '</a> · ' : '') . '<a href="?p=log&id=' . $ev['id'] . '">Protokoll</a>'
+       . filter_form($ev, 'entries', $allRows, $f, 'Filtern')
+       . '<p class="info">' . ($fq !== '' ? count($rows) . ' von ' . count($allRows) . ' Anmeldungen (gefiltert)' : count($allRows) . ' Anmeldungen') . '</p>'
        . '<div class="box scroll"><table><thead><tr><th>Durchgang</th><th>Name</th><th>Verein</th><th>Lizenz</th><th>Bogen-/Altersklasse</th><th>E-Mail</th>' . ($oem ? '<th>Nachweis</th>' : '') . '<th>Status</th><th>Zahlung</th><th>in ianseo</th>' . ($cash ? '<th></th>' : '') . '</tr></thead><tbody>';
     $sl = q("SELECT * FROM reg_sessions WHERE event_id=? ORDER BY no", [$ev['id']])->fetchAll();
-    $rows = q("SELECT e.*,s.no,s.name AS sname FROM reg_entries e JOIN reg_sessions s ON s.id=e.session_id WHERE e.event_id=? ORDER BY s.no, e.paid DESC, e.paid_at, e.id", [$ev['id']])->fetchAll();
-    if (!$rows) echo '<tr><td colspan="11" class="empty">Noch keine Anmeldungen.</td></tr>';
+    if (!$rows) echo '<tr><td colspan="11" class="empty">' . ($allRows ? 'Keine Anmeldung entspricht dem Filter.' : 'Noch keine Anmeldungen.') . '</td></tr>';
     foreach ($rows as $r) {
-        $btn = fn($act, $v, $label, $cls = '') => '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="' . $act . '"><input type="hidden" name="id" value="' . $r['id'] . '"><input type="hidden" name="v" value="' . $v . '"><button class="sm ' . $cls . '"' . ($act === 'del_entry' ? ' onclick="return confirm(\'Wirklich löschen?\')"' : '') . '>' . $label . '</button></form>';
+        $btn = fn($act, $v, $label, $cls = '') => '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="' . $act . '"><input type="hidden" name="id" value="' . $r['id'] . '"><input type="hidden" name="v" value="' . $v . '"><input type="hidden" name="ret" value="' . e($fq) . '"><button class="sm ' . $cls . '"' . ($act === 'del_entry' ? ' onclick="return confirm(\'Wirklich löschen?\')"' : '') . '>' . $label . '</button></form>';
         if ($cash) {
-            $mv = '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="move"><input type="hidden" name="id" value="' . $r['id'] . '"><select name="sid" onchange="this.form.submit()" aria-label="Durchgang ändern">';
+            $mv = '<form method="post" class="inl">' . tf() . '<input type="hidden" name="a" value="move"><input type="hidden" name="id" value="' . $r['id'] . '"><input type="hidden" name="ret" value="' . e($fq) . '"><select name="sid" onchange="this.form.submit()" aria-label="Durchgang ändern">';
             foreach ($sl as $s) $mv .= '<option value="' . $s['id'] . '"' . ($s['id'] == $r['session_id'] ? ' selected' : '') . '>' . $s['no'] . ($s['name'] ? ' – ' . e($s['name']) : '') . '</option>';
             $mv .= '</select></form>';
         } else $mv = $r['no'] . ($r['sname'] ? ' – ' . e($r['sname']) : '');
@@ -770,7 +878,107 @@ if ($p === 'check') {
     }
     echo '</tbody></table></div>';
 }
-if (!in_array($p, ['events', 'event', 'entries', 'edit', 'users', 'user', 'master', 'athlete', 'settings', 'check', 'log'], true)) echo '<h2>Seite nicht gefunden</h2><p><a href="admin.php">Zur Turnierliste</a></p>';
+// ---- Statistik je Turnier -----------------------------------------------------------------------------
+if ($p === 'stats') {
+    $ev = get_event((int)($_GET['id'] ?? 0)); if (!can_view($ev)) deny();
+    $f = entry_filter_params($_GET); $f['q'] = $f['div'] = $f['cls'] = $f['st'] = ''; $f['ses'] = $f['ses'] ?: 0;     // Statistik: nur Durchgang und Zahlung filterbar
+    $fq = entry_filter_query($f);
+    [$st, $opt, $sl] = stats_data($ev, $f);
+    event_head($ev);
+    $t = $st['total']; $zero = ['n' => 0, 'paid' => 0, 'open' => 0, 'starter' => 0, 'wait' => 0];
+    $pct = fn(array $c) => $c['n'] ? (int)round(100 * $c['paid'] / $c['n']) : 0;
+    $tr = fn(string $label, array $c, bool $b = false) => '<tr' . ($b ? ' class="sum"' : '') . '><td>' . $label . '</td><td class="sn">' . $c['n'] . '</td><td class="sn">' . $c['paid'] . '</td><td class="sn">' . $c['open'] . '</td>'
+        . '<td><span class="bar" title="' . $pct($c) . ' % bezahlt"><i style="width:' . $pct($c) . '%"></i></span> <small>' . $pct($c) . ' %</small></td></tr>';
+    $th = fn(string $first) => '<thead><tr><th>' . $first . '</th><th class="sn">Anmeldungen</th><th class="sn">bezahlt</th><th class="sn">nicht bezahlt</th><th>Anteil bezahlt</th></tr></thead>';
+    $sesOpts = ''; foreach ($sl as $x) $sesOpts .= '<option value="' . $x['id'] . '"' . ((int)$f['ses'] === (int)$x['id'] ? ' selected' : '') . '>' . e($x['no'] . ($x['name'] !== '' ? ' – ' . $x['name'] : '')) . '</option>';
+    echo '<h3>Statistik</h3><p><a href="?p=entries&id=' . $ev['id'] . '">← Anmeldungen</a> · <a href="?p=statscsv&id=' . $ev['id'] . ($fq !== '' ? '&' . $fq : '') . '">Statistik als CSV</a>'
+       . (can_cash($ev) ? ' · <a href="?p=mail&id=' . $ev['id'] . '">Rundmail</a>' : '') . '</p>'
+       . '<form method="get" class="box filt"><input type="hidden" name="p" value="stats"><input type="hidden" name="id" value="' . $ev['id'] . '">'
+       . '<label>Durchgang<select name="ses"><option value="">alle</option>' . $sesOpts . '</select></label>'
+       . '<label>Zahlung<select name="z"><option value="">alle</option><option value="1"' . ($f['z'] === '1' ? ' selected' : '') . '>nur bezahlt</option><option value="0"' . ($f['z'] === '0' ? ' selected' : '') . '>nur nicht bezahlt</option></select></label>'
+       . '<button class="sm">Anzeigen</button>' . ($fq !== '' ? ' <a href="?p=stats&id=' . $ev['id'] . '">Zurücksetzen</a>' : '') . '</form>';
+    if ($t['n'] === 0) echo '<p class="empty">' . ($fq !== '' ? 'Keine Anmeldungen für diese Auswahl.' : 'Noch keine Anmeldungen.') . '</p>';
+    else {
+        $dk = stat_keys(array_keys($st['div']), $opt['div']); $ck = stat_keys(array_keys($st['cls']), $opt['cls']);
+        echo '<div class="box scroll"><table class="stat"><thead><tr><th class="sn">Anmeldungen</th><th class="sn">bezahlt</th><th class="sn">nicht bezahlt</th><th class="sn">Starter</th><th class="sn">Warteliste</th><th>Anteil bezahlt</th></tr></thead><tbody><tr>'
+           . '<td class="sn">' . $t['n'] . '</td><td class="sn">' . $t['paid'] . '</td><td class="sn">' . $t['open'] . '</td><td class="sn">' . $t['starter'] . '</td><td class="sn">' . $t['wait'] . '</td>'
+           . '<td><span class="bar"><i style="width:' . $pct($t) . '%"></i></span> <small>' . $pct($t) . ' %</small></td></tr></tbody></table></div>';
+        echo '<h4>Je Durchgang</h4><div class="box scroll"><table class="stat"><thead><tr><th>Durchgang</th><th class="sn">Anmeldungen</th><th class="sn">bezahlt</th><th class="sn">nicht bezahlt</th><th class="sn">Starter / Plätze</th><th class="sn">Warteliste</th></tr></thead><tbody>';
+        foreach ($sl as $x) {
+            if ($f['ses'] && (int)$x['id'] !== (int)$f['ses']) continue;
+            $c = $st['ses'][$x['id']] ?? $zero;
+            echo '<tr><td>' . e($x['no'] . ($x['name'] !== '' ? ' – ' . $x['name'] : '')) . '</td><td class="sn">' . $c['n'] . '</td><td class="sn">' . $c['paid'] . '</td><td class="sn">' . $c['open'] . '</td><td class="sn">' . $c['starter'] . ((int)$x['capacity'] > 0 ? ' / ' . (int)$x['capacity'] : '') . '</td><td class="sn">' . $c['wait'] . '</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        echo '<h4>Je Bogenklasse</h4><div class="box scroll"><table class="stat">' . $th('Bogenklasse') . '<tbody>';
+        foreach ($dk as $d) echo $tr(e(stat_label($d, $opt['div'])), $st['div'][$d]);
+        echo $tr('Gesamt', $t, true) . '</tbody></table></div>';
+        echo '<h4>Je Altersklasse</h4><div class="box scroll"><table class="stat">' . $th('Altersklasse') . '<tbody>';
+        foreach ($ck as $c) echo $tr(e(stat_label($c, $opt['cls'])), $st['cls'][$c]);
+        echo $tr('Gesamt', $t, true) . '</tbody></table></div>';
+        echo '<h4>Bogenklasse × Altersklasse (Anzahl Schützen)</h4><div class="box scroll"><table class="stat"><thead><tr><th>Bogenklasse</th>';
+        foreach ($ck as $c) echo '<th class="sn" title="' . e(stat_label($c, $opt['cls'])) . '">' . e($c) . '</th>';
+        echo '<th class="sn">Gesamt</th></tr></thead><tbody>';
+        foreach ($dk as $d) {
+            echo '<tr><td>' . e(stat_label($d, $opt['div'])) . '</td>';
+            foreach ($ck as $c) { $n = $st['combo'][$d][$c]['n'] ?? 0; echo '<td class="sn' . ($n ? '' : ' z') . '">' . ($n ?: '·') . '</td>'; }
+            echo '<td class="sn"><strong>' . $st['div'][$d]['n'] . '</strong></td></tr>';
+        }
+        echo '<tr class="sum"><td>Gesamt</td>';
+        foreach ($ck as $c) echo '<td class="sn">' . $st['cls'][$c]['n'] . '</td>';
+        echo '<td class="sn">' . $t['n'] . '</td></tr></tbody></table></div>';
+        echo '<h4>Kombinationen im Detail (bezahlt / nicht bezahlt)</h4><div class="box scroll"><table class="stat">' . $th('Bogenklasse / Altersklasse') . '<tbody>';
+        foreach ($dk as $d) foreach (stat_keys(array_keys($st['combo'][$d]), $opt['cls']) as $c) echo $tr(e(stat_label($d, $opt['div'])) . ' / ' . e(stat_label($c, $opt['cls'])), $st['combo'][$d][$c]);
+        echo '</tbody></table></div>';
+    }
+}
+
+// ---- Rundmail (alle, je Durchgang, je Bogenklasse/Altersklasse, bezahlt / nicht bezahlt) -----------------
+if ($p === 'mail') {
+    $ev = get_event((int)($_GET['id'] ?? 0)); if (!can_cash($ev)) deny();
+    $f = entry_filter_params($_GET); $fq = entry_filter_query($f);
+    $all = event_entries($ev); $rows = filter_entries($ev, $all, $f);
+    $dr = $_SESSION['mass_draft'][(int)$ev['id']] ?? []; $tp = $dr['tpl'] ?? [];
+    $emails = []; foreach ($rows as $r) if (filter_var($r['email'], FILTER_VALIDATE_EMAIL)) $emails[mb_strtolower((string)$r['email'])] = 1;
+    event_head($ev);
+    $chip = fn(string $label, string $q2) => '<a class="tag' . ($fq === $q2 ? ' paid' : '') . '" href="?p=mail&id=' . $ev['id'] . ($q2 !== '' ? '&' . $q2 : '') . '">' . $label . '</a>';
+    echo '<h3>Rundmail</h3><p><a href="?p=entries&id=' . $ev['id'] . '">← Anmeldungen</a> · <a href="?p=stats&id=' . $ev['id'] . '">Statistik</a></p>';
+    if (empty(mail_cfg()['enabled'])) echo '<p class="msg err">Der E-Mail-Versand ist nicht aktiviert (Administrator: Einstellungen → Mailserver). Ohne Mailserver können keine Rundmails gesendet werden.</p>';
+    echo '<p>Schnellauswahl: ' . $chip('alle', '') . ' ' . $chip('nicht bezahlt', 'z=0') . ' ' . $chip('bezahlt', 'z=1') . '</p>' . filter_form($ev, 'mail', $all, $f, 'Empfänger auswählen');
+    ?>
+    <form method="post" class="box stack" style="max-width:none"><?= tf() ?>
+      <input type="hidden" name="a" value="send_mass"><input type="hidden" name="id" value="<?= (int)$ev['id'] ?>">
+      <?php foreach ($f as $k => $v) if ($v !== '' && $v !== 0) echo '<input type="hidden" name="' . e($k) . '" value="' . e($v) . '">'; ?>
+      <h4>Empfänger: <?= count($rows) ?> Anmeldung<?= count($rows) === 1 ? '' : 'en' ?> (<?= count($emails) ?> verschiedene E-Mail-Adressen)</h4>
+      <?php if (!$rows): ?>
+        <p class="empty">Keine Anmeldungen für diese Auswahl.</p>
+      <?php else: ?>
+        <label><input type="checkbox" checked onclick="var a=this.checked;document.querySelectorAll('.selc:not(:disabled)').forEach(function(c){c.checked=a})"> alle auswählen / abwählen</label>
+        <div class="scroll" style="max-height:22rem;overflow:auto"><table><thead><tr><th></th><th>Name</th><th>Durchgang</th><th>Bogen-/Altersklasse</th><th>E-Mail</th><th>Zahlung</th></tr></thead><tbody>
+        <?php foreach ($rows as $r): $ok = (bool)filter_var($r['email'], FILTER_VALIDATE_EMAIL); ?>
+          <tr><td><input type="checkbox" class="selc" name="sel[]" value="<?= (int)$r['id'] ?>"<?= $ok ? ' checked' : ' disabled' ?>></td><td><?= e($r['lastname'] . ' ' . $r['firstname']) ?></td><td><?= e($r['no']) ?></td><td><?= e($r['division'] . ' / ' . $r['class']) ?></td><td><?= e($r['email']) ?><?= $ok ? '' : ' <span class="tag open">ungültig</span>' ?></td><td><span class="tag <?= $r['paid'] ? 'paid' : 'open' ?>"><?= $r['paid'] ? 'bezahlt' : 'offen' ?></span></td></tr>
+        <?php endforeach; ?>
+        </tbody></table></div>
+        <h4>Nachricht</h4>
+        <label>Betreff<input name="s_de" required maxlength="200" value="<?= e($tp['de']['s'] ?? '') ?>"></label>
+        <label>Text<textarea name="b_de" rows="10" required><?= e($tp['de']['b'] ?? '') ?></textarea></label>
+        <details><summary>Englische Fassung (optional – wird für Anmeldungen in englischer Sprache verwendet, sonst der deutsche Text)</summary>
+          <label>Subject<input name="s_en" maxlength="200" value="<?= e($tp['en']['s'] ?? '') ?>"></label>
+          <label>Text<textarea name="b_en" rows="8"><?= e($tp['en']['b'] ?? '') ?></textarea></label>
+        </details>
+        <p class="info">Platzhalter (je Empfänger ersetzt): {vorname} {nachname} {name} {turnier} {durchgang} {verein} {lizenz} {bogenklasse} {altersklasse} {ref} {verwendungszweck} {zahlungsinfo} {paypal} {anmeldeschluss} {anmeldestart} {nenngeld} {organisation} (Groß-/Kleinschreibung egal).<br>
+          Beispiel Zahlungserinnerung: „Hallo {vorname}, für „{turnier}“ ist noch keine Zahlung eingegangen. Nenngeld: {nenngeld}, Verwendungszweck: {verwendungszweck} {zahlungsinfo}“</p>
+        <label><input type="checkbox" name="dedupe" value="1"<?= ($dr['dedupe'] ?? true) ? ' checked' : '' ?>> Pro E-Mail-Adresse nur eine Mail senden (Platzhalter beziehen sich dann auf die erste Anmeldung dieser Adresse)</label>
+        <label><input type="checkbox" name="copy" value="1"<?= ($dr['copy'] ?? true) ? ' checked' : '' ?>> Kopie an mich senden</label>
+        <p class="info">Antworten der Empfänger gehen an die E-Mail-Adresse deines Kontos (Mein Konto), sonst an die Organisationsleitung. Jede Rundmail wird im Protokoll vermerkt (höchstens 500 Anmeldungen pro Versand).</p>
+        <div><button name="test" value="1" class="ghost">Testmail an mich</button>
+        <button onclick="var n=document.querySelectorAll('.selc:checked').length;return n>0&amp;&amp;confirm('Rundmail jetzt an '+n+' ausgewählte Anmeldung(en) senden?')">Rundmail senden</button></div>
+      <?php endif; ?>
+    </form>
+    <?php
+}
+
+if (!in_array($p, ['events', 'event', 'entries', 'edit', 'stats', 'mail', 'users', 'user', 'master', 'athlete', 'settings', 'check', 'log'], true)) echo '<h2>Seite nicht gefunden</h2><p><a href="admin.php">Zur Turnierliste</a></p>';
 } catch (Throwable $x) {
     error_log('[anmeldung] ' . $x);
     echo '<div class="msg err"><strong>Fehler:</strong> ' . e($x->getMessage()) . ' (' . e(basename($x->getFile())) . ':' . (int)$x->getLine() . ')</div>';

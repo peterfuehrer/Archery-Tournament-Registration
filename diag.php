@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.08-d */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
 // Diagnose für Administratoren: prüft Dateistand, Datenbank und ruft admin.php?p=master selbst auf.
 require __DIR__ . '/lib.php';
 if (role() !== 'admin') { http_response_code(403); exit('Nur für Administratoren (bitte zuerst im Backend anmelden).'); }
@@ -32,7 +32,7 @@ foreach (['config.php', 'config.sample.php', 'lib.php'] as $f0) {
     $leak = $b0 !== false && (str_contains($b0, 'HIER_PASSWORT') || preg_match("/'pass'\s*=>/", $b0));
     $add('Abruf von außen: /' . $f0, $b0 === false ? 'nicht möglich (Selbstaufruf gesperrt)' : 'HTTP ' . $st0 . ($leak ? ' – INHALT SICHTBAR!' : ' – Inhalt nicht lesbar'), $b0 === false ? null : !$leak);
 }
-foreach (['reg_users', 'reg_events', 'reg_sessions', 'reg_entries', 'reg_clubs', 'reg_athletes', 'reg_settings', 'reg_event_users', 'reg_ratelimit', 'reg_api_cache'] as $t) {
+foreach (['reg_users', 'reg_events', 'reg_sessions', 'reg_entries', 'reg_clubs', 'reg_athletes', 'reg_settings', 'reg_event_users', 'reg_event_scorers', 'reg_ratelimit', 'reg_api_cache'] as $t) {
     try { $add('Tabelle ' . $t, (string)(int)q("SELECT COUNT(*) FROM `$t`")->fetchColumn() . ' Einträge', true); } catch (Throwable $x) { $add('Tabelle ' . $t, 'FEHLER: ' . $x->getMessage(), false); }
 }
 try {

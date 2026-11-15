@@ -1,5 +1,5 @@
 Turnier-Anmeldeplattform für ianseo / Tournament registration platform for ianseo
-Copyright (C) 2026 Peter Führer – Version 2026.11.08-d
+Copyright (C) 2026 Peter Führer – Version 2026.11.15-a
 
 Dieses Projekt ist freie Software und wird unter der GNU Affero General Public License v3 (AGPLv3) veröffentlicht. Die AGPLv3 ist eine von der
 Open Source Initiative (OSI) anerkannte Lizenz; das Projekt entspricht den Kriterien der Open Source Definition. Lizenztext: Datei LICENSE.
@@ -22,6 +22,7 @@ UPDATE
 ROLLEN
 - Administrator: alles. Organisationsleitung: Turnieranmeldungen anlegen, EIGENE Turniere bearbeiten/löschen, Kassiere freigeben, Kassier-Rechte für eigene Turniere.
 - Kassier: nur für freigegebene Turniere – bezahlt setzen, zurücksetzen, Anmeldungen bearbeiten, verschieben, löschen.
+- Auswerter: bis zu 3 je Turnier (Turnier-Einstellungen -> Verantwortliche), gleiche Rechte wie die Organisationsleitung für dieses Turnier, aber ohne Anlegen neuer Turniere und ohne Vergabe weiterer Auswerter; werden auf der öffentlichen Seite nicht angezeigt.
 
 STAMMDATEN-CSV (Backend -> Stammdaten): Lizenznummer; Vorname; Nachname; Vereinsnummer; Vereinsname; Bundeslandkürzel; Bundeslandname
 - Daraus entstehen Schützen- und Vereinsliste. Anmeldung: Lizenznummer wird geprüft (Name UND Verein; Groß-/Kleinschreibung, Akzente und Leerzeichen
@@ -52,6 +53,11 @@ EXTERNE SQL-DATENBANK (optional, nur Lesen): Backend -> Einstellungen -> "Extern
 PROTOKOLL: Backend -> Protokoll: Anmeldungen, Zahlungen, Änderungen, Verschiebungen, Löschungen, Importe, ianseo-Übertragungen, Öffnen/Schließen (mit Zeit und Benutzer). Filter, CSV-Export, automatische Löschung nach 24 Monaten.
   Sichtbar: Administrator (alles), Organisationsleitung und Kassier (nur eigene bzw. freigegebene Turniere).
 E-MAIL-TEXTE JE TURNIER: Turnier-Einstellungen -> "E-Mail-Texte": eigener Betreff und Text (Deutsch/Englisch) für die Eingangsbestätigung und die Startplatz-Bestätigung, mit Platzhaltern wie {vorname}, {turnier}, {verwendungszweck}, {paypal}. Leer = Standardtext. Testmail-Knopf vorhanden.
+ANMELDESTART: Turnier-Einstellungen -> "Anmeldestart": Anmeldung erst ab diesem Tag möglich; optional "Zum Anmeldestart automatisch auf Anmeldung offen schalten" (einmalig, ein späteres manuelles Schließen bleibt bestehen). Platzhalter {nenngeld} und {anmeldestart} in E-Mails (Groß-/Kleinschreibung egal).
+STATISTIK, FILTER, RUNDMAIL (Backend): Turnierliste -> "Statistik": je Turnier Anzahl Anmeldungen bezahlt/nicht bezahlt, Starter/Warteliste, je Durchgang, je Bogenklasse, je Altersklasse sowie Bogenklasse x Altersklasse (Matrix und Detailliste mit bezahlt/offen);
+  filterbar nach Durchgang und Zahlung, Export als CSV. Seite "Anmeldungen": Suche (Name, Verein, Lizenz, E-Mail, Referenz; Groß-/Kleinschreibung, Akzente egal) und Filter nach Durchgang, Bogenklasse, Altersklasse, Zahlung und Status; der CSV-Export gilt für die Filterauswahl.
+  Rundmail (Administrator, Organisationsleitung, freigegebener Kassier): Empfänger über dieselben Filter wählen (alle, je Durchgang, je Bogen-/Altersklasse, bezahlt, nicht bezahlt), Einzelne abwählen, Text mit Platzhaltern ({vorname}, {turnier}, {verwendungszweck} ...), optional englische Fassung,
+  Testmail an sich selbst, Kopie an sich selbst. Antworten gehen an die E-Mail-Adresse des Absenders (Mein Konto). Jede Rundmail steht im Protokoll. Voraussetzung: Mailserver ist unter Einstellungen aktiviert. Höchstens 500 Anmeldungen pro Versand.
 
 === ENGLISH =====================================================================================================
 
@@ -68,6 +74,7 @@ UPDATE
 ROLES
 - Administrator: everything. Organiser: create registrations, edit/delete OWN tournaments, release treasurers, treasurer rights for own tournaments.
 - Treasurer: only released tournaments – mark paid, reset, edit, move, delete registrations.
+- Evaluator ("Auswerter"): up to 3 per tournament (tournament settings -> responsible persons), same rights as the organiser for that tournament, but cannot create tournaments or assign further evaluators; not shown on the public pages.
 
 MASTER DATA CSV: licence number; first name; last name; club number; club name; state code; state name. Registration checks licence number, name AND club
 (case, accents and spaces are ignored). Optional auto-fill of name and club after entering the licence number (Settings -> Features).
@@ -95,3 +102,8 @@ EXTERNAL SQL DATABASE (optional, read only): Back office -> Settings -> "Externa
 LOG: Back office -> Log: registrations, payments, changes, moves, deletions, imports, ianseo transfers, opening/closing (with time and user). Filters, CSV export, automatic deletion after 24 months.
   Visible: administrator (all), organiser and treasurer (own or released tournaments only).
 E-MAIL TEXTS PER TOURNAMENT: Tournament settings -> "E-mail texts": own subject and text (German/English) for the registration confirmation and the starting-place confirmation, with placeholders such as {vorname}, {turnier}, {verwendungszweck}, {paypal}. Empty = default text. A test-mail button is provided.
+REGISTRATION START: tournament settings -> "Anmeldestart": registration is only possible from that day; optionally "Zum Anmeldestart automatisch auf Anmeldung offen schalten" (once, a later manual close stays). Placeholders {nenngeld} (entry fee) and {anmeldestart} in e-mails (case-insensitive).
+STATISTICS, FILTER, BULK MAIL (back office): tournament list -> "Statistik": per tournament number of registrations paid/unpaid, starters/waiting list, per session, per division, per age class and division x age class (matrix and detail list with paid/open);
+  filterable by session and payment, CSV export. "Registrations" page: search (name, club, licence, e-mail, reference; case and accents ignored) and filters for session, division, age class, payment and status; the CSV export follows the filter.
+  Bulk mail (administrator, organiser, released treasurer): choose recipients with the same filters (all, per session, per division/age class, paid, unpaid), untick single people, text with placeholders ({vorname}, {turnier}, {verwendungszweck} ...), optional English version,
+  test mail to yourself, copy to yourself. Replies go to the sender's e-mail address (My account). Every bulk mail is logged. Requires the mail server to be enabled under Settings. At most 500 registrations per send.
