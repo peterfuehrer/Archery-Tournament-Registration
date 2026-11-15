@@ -136,7 +136,7 @@ code{background:#e8eff0;padding:.1rem .3rem;border-radius:4px;font-size:.9em;ove
 }
 @media print{.top,.foot,.cookiebar,.skip{display:none}}
 
-.foot .ver{font-size:.78rem;opacity:.85}
+.foot .ver,.foot .lic-line{font-size:.78rem;opacity:.85}
 
 .licbox{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#fff;padding:.8rem;margin:.6rem 0}
 .licbox pre{white-space:pre-wrap;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;margin:0}

@@ -204,7 +204,7 @@ function page_foot(): void {
        . '<nav class="foot-nav"><a href="impressum.php">' . e(t('Impressum')) . '</a><a href="datenschutz.php">' . e(t('Datenschutzerklärung')) . '</a>'
        . ($pub ? '<a href="#" id="cookie-open">' . e(t('Cookie-Einstellungen')) . '</a>' : '') . ($src !== '' ? '<a href="' . e($src) . '">' . e(t('Quellcode')) . '</a>' : '') . '</nav></div>'
        . '<div class="foot-r">' . ($osi !== '' ? '<div class="lic-logos">' . $osi . '</div>' : '')
-       . '<p><a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener license" title="GNU Affero General Public License v3">' . e(t('Veröffentlicht unter der GNU Affero General Public License v3 (OSI-konforme Open-Source-Lizenz).')) . '</a></p>'
+       . '<p class="lic-line"><a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener license" title="GNU Affero General Public License v3">' . e(t('Veröffentlicht unter der GNU Affero General Public License v3 (OSI-konforme Open-Source-Lizenz).')) . '</a></p>'
        . ($osi !== '' ? '<p class="tm">' . e(t('OSI Approved License® – Das OSI-Logo ist eine Marke der Open Source Initiative. Dieses Projekt ist nicht mit der OSI verbunden und wird von ihr nicht unterstützt.')) . '</p>' : '') . '</div></div></footer>';
     if ($pub) {
         echo '<div id="cookiebar" class="cookiebar" role="dialog" aria-modal="false" aria-labelledby="cb-t" hidden><div class="cookiebar-in"><div class="cb-text"><strong id="cb-t">' . e(t('Cookies und Datenschutz')) . '</strong>'
