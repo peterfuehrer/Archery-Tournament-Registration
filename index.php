@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
 require __DIR__ . '/lib.php';
 $events = q("SELECT * FROM reg_events WHERE published=1 ORDER BY id DESC")->fetchAll();
 $ev = null; $eid = (int)($_GET['e'] ?? 0);
@@ -49,6 +49,7 @@ if ($ev) {
         if (!$ses) $err[] = t('Bitte einen Durchgang wählen.');
         if ($opts['div'] && !isset($opts['div'][$f['division']])) $err[] = t('Bitte Bogenklasse wählen.');
         if ($opts['cls'] && !isset($opts['cls'][$f['class']])) $err[] = t('Bitte Altersklasse wählen.');
+        elseif (in_array($f['sex'], [0, 1], true) && ($opts['clsex'][$f['class']] ?? -1) >= 0 && (int)$opts['clsex'][$f['class']] !== $f['sex']) $err[] = t('Diese Altersklasse passt nicht zum gewählten Geschlecht.');
         if ($ses && $ses['divisions'] !== '' && !in_array($f['division'], explode(',', $ses['divisions']), true)) $err[] = t('Diese Bogenklasse ist in diesem Durchgang nicht zugelassen.');
         if ($oem) {
             if ($f['qtype'] === 1) {
@@ -113,6 +114,7 @@ elseif (!array_filter($sessions, fn($s) => session_is_open($ev, $s))) echo '<p c
 else {
     foreach ($err as $m) echo '<p class="msg err">' . e($m) . '</p>';
     $v = fn($k) => e($f[$k] ?? '');
+    $selCls = implode('', array_map(fn($id, $d) => '<option value="' . e($id) . '" data-sex="' . (int)($opts['clsex'][$id] ?? -1) . '"' . (($f['class'] ?? '') === (string)$id ? ' selected' : '') . '>' . e($id . ' – ' . $d) . '</option>', array_keys($opts['cls']), $opts['cls']));
     $sel = fn(array $o, string $k) => implode('', array_map(fn($id, $d) => '<option value="' . e($id) . '"' . (($f[$k] ?? '') === (string)$id ? ' selected' : '') . '>' . e($id . ' – ' . $d) . '</option>', array_keys($o), $o));
     $cs = $f['club_sel'] ?? '';
     $docLink = doc_link($ev);
@@ -153,7 +155,7 @@ else {
         <?php } ?>
         </div></section>
 
-      <section class="sec"><h3><span class="num">4</span><?= e(t('Turnier')) ?></h3>
+      <section class="sec"><h3><span class="num">4</span><?= e(t('Turnierdurchgänge')) ?></h3>
         <div class="grid">
           <label class="wide"><?= e(t('Durchgang')) ?><select name="sid" required><option value="">–</option>
             <?php foreach ($sessions as $s) { [$st, , $cap] = lists((int)$s['id']);
@@ -161,7 +163,7 @@ else {
                    . e(($s['name'] ?: t('Durchgang') . ' ' . $s['no']) . ' (' . count($st) . ($cap ? '/' . $cap : '') . ' ' . t('Starter') . ')' . (session_is_open($ev, $s) ? '' : ' – ' . t('Anmeldung geschlossen'))) . '</option>'; } ?>
           </select></label>
           <label><?= e(t('Bogenklasse')) ?><select name="division" required><option value="">–</option><?= $sel($opts['div'], 'division') ?></select></label>
-          <label><?= e(t('Altersklasse')) ?><select name="class" required><option value="">–</option><?= $sel($opts['cls'], 'class') ?></select></label>
+          <label><?= e(t('Altersklasse')) ?><select name="class" required><option value="">–</option><?= $selCls ?></select></label>
           <?php if ($oem) { $qt = $f['qtype'] ?? 0; ?>
           <fieldset class="wide"><legend><?= e(t('Qualifikation für die ÖM/ÖSTM')) ?></legend>
             <label class="chk"><input type="radio" name="qtype" value="1" <?= $qt === 1 ? 'checked' : '' ?>> <?= e(t('Option 1: Bitte die 3 für die Teilnahme notwendigen Turniere angeben')) ?></label>
@@ -192,12 +194,16 @@ else {
         for(var i=0;i<d.options.length;i++){var v=d.options[i].value,ok=!x||!v||x.indexOf(v)>-1;d.options[i].hidden=!ok;d.options[i].disabled=!ok;}
         if(d.selectedOptions[0]&&d.selectedOptions[0].disabled)d.value='';}
       s.addEventListener('change',f);f();
+      var xs=document.querySelector('select[name=sex]'),xc=document.querySelector('select[name=class]');
+      function g2(){var v=xs.value;for(var i=0;i<xc.options.length;i++){var o=xc.options[i],x=o.dataset.sex,ok=v===''||!x||x==='-1'||x===v;o.hidden=!ok;o.disabled=!ok;}
+        if(xc.selectedOptions[0]&&xc.selectedOptions[0].disabled)xc.value='';}
+      if(xs&&xc){xs.addEventListener('change',g2);g2();}
       <?php if ($autofill) { ?>
       var h=q('lichint');
       li.addEventListener('change',function(){var v=li.value.trim();if(!v||fo.checked||li.disabled)return;
         fetch('lookup.php?lic='+encodeURIComponent(v)+'&lang=<?= lang() ?>',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(r){
           h.textContent=r.msg||'';h.className='hint'+(r.ok?' ok':'');if(!r.ok)return;
-          q('fn').value=r.first;q('ln').value=r.last;if(r.sex===0||r.sex===1){var sx=document.querySelector('select[name=sex]');if(sx)sx.value=String(r.sex);}
+          q('fn').value=r.first;q('ln').value=r.last;if(r.sex===0||r.sex===1){var sx=document.querySelector('select[name=sex]');if(sx){sx.value=String(r.sex);sx.dispatchEvent(new Event('change'));}}
           if(cs){if(r.club_code&&cs.querySelector('option[value="'+r.club_code+'"]'))cs.value=r.club_code;else if(r.club){cs.value='other';q('clubname').value=r.club;}a();}
         }).catch(function(){});});
       <?php } ?>
@@ -209,7 +215,7 @@ else {
 foreach ($sessions as $s) {
     [$st, $wl, $cap] = lists((int)$s['id']);
     echo '<section class="ses"><h3>' . e($s['name'] ?: t('Durchgang') . ' ' . $s['no']) . ' <span class="tag">' . count($st) . ($cap ? ' ' . t('von') . ' ' . $cap : '') . ' ' . e(t('Starter')) . '</span>' . ($isOpen && !session_is_open($ev, $s) ? ' <span class="tag open">' . e(t('Anmeldung geschlossen')) . '</span>' : '') . '</h3>'
-       . ($s['divisions'] !== '' ? '<div class="kv"><span>' . e(t('Zugelassen')) . '</span><div>' . e($allowed($s)) . '</div></div>' : '') . '<div class="two">';
+       . '<div class="two">';
     foreach ([[t('Starterliste'), $st, false], [t('Warteliste'), $wl, true]] as [$title, $rows, $isW]) {
         echo '<div><h4>' . e($title) . ' (' . count($rows) . ')</h4>';
         if (!$rows) echo '<p class="empty">' . e(t('Noch niemand.')) . '</p>';

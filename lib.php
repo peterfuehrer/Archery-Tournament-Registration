@@ -1,6 +1,6 @@
 <?php
 /*
- * Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – Version 2026.11.15-a
+ * Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – Version 2026.11.15-7
  *
  * This program is free software: you can redistribute it and/or modify it under the terms of the
  * GNU Affero General Public License as published by the Free Software Foundation, either version 3
@@ -10,7 +10,7 @@
  */
 declare(strict_types=1);
 // Copyright (C) 2026 Peter Führer – nur als Vermerk im Quelltext, wird nicht auf den Seiten angezeigt.
-const APP_VERSION = '2026.11.15-a';
+const APP_VERSION = '2026.11.15-7';
 // Konfiguration (enthält die Datenbank-Zugangsdaten): bevorzugt außerhalb des Web-Ordners, sonst config.php im Plattform-Ordner
 function config_file(): ?string {
     foreach ([(string)getenv('ANMELDUNG_CONFIG'), dirname(__DIR__) . '/anmeldung-config-' . substr(md5(__DIR__), 0, 8) . '.php', __DIR__ . '/config.php'] as $p)
@@ -147,11 +147,13 @@ function setting(string $k): string {
     if ($c === null) { try { $c = array_column(db()->query("SELECT k,v FROM reg_settings")->fetchAll(), 'v', 'k'); } catch (Throwable $x) { $c = []; } }
     return (string)($c[$k] ?? '');
 }
+// Kopfzeile: Seitentitel ist optional – bleibt das Feld leer, wird nur das Logo gezeigt (ohne Logo immer der Titel; der Browser-Titel behält den Standardnamen)
+function site_title_hidden(): bool { return setting('site_title_hide') === '1' && logo_html() !== ''; }
 function site_title(): string { global $CFG; return setting('site_title') !== '' ? setting('site_title') : (string)($CFG['site_title'] ?? 'Turnier-Anmeldung'); }
 function set_setting(string $k, string $v): void { q("REPLACE INTO reg_settings (k,v) VALUES (?,?)", [$k, $v]); }
 
 // ---- Rollen ---------------------------------------------------------------
-const ROLES = ['admin' => 'Administrator', 'orga' => 'Organisationsleitung', 'auswerter' => 'Auswerter', 'kassier' => 'Kassier'];
+const ROLES = ['admin' => 'Administrator', 'orga' => 'Organisationsleitung', 'auswerter' => 'Auswertung', 'kassier' => 'Kassier:in'];
 function uid(): int { return (int)($_SESSION['uid'] ?? 0); }
 function role(): string {
     if (!uid()) return '';
@@ -159,16 +161,16 @@ function role(): string {
     return (string)$_SESSION['role'];
 }
 function is_admin(): bool { return role() === 'admin'; }
-function can_create_event(): bool { return in_array(role(), ['admin', 'orga'], true); }
-// Auswerter: bis zu 3 je Turnier (Tabelle reg_event_scorers), gleiche Rechte wie die Organisationsleitung dieses Turniers, erscheinen nirgends auf der öffentlichen Seite
+function can_create_event(): bool { return in_array(role(), ['admin', 'orga', 'auswerter'], true); }
+// Auswertung: gleiche Rechte wie die Organisationsleitung (eigene Turniere anlegen/bearbeiten, Auswertung vergeben) und zusätzlich bis zu 3 je Turnier zugewiesen (Tabelle reg_event_scorers); werden nur dann öffentlich genannt, wenn sie selbst Inhaber eines Turniers sind
 function is_auswerter_of(array $ev): bool {
     return role() === 'auswerter' && (bool)q("SELECT 1 FROM reg_event_scorers WHERE event_id=? AND user_id=?", [$ev['id'], uid()])->fetch();
 }
-function can_event(array $ev): bool { return is_admin() || (role() === 'orga' && (int)$ev['owner_id'] === uid()) || is_auswerter_of($ev); }
+function can_event(array $ev): bool { return is_admin() || (in_array(role(), ['orga', 'auswerter'], true) && (int)$ev['owner_id'] === uid()) || is_auswerter_of($ev); }
 function is_kassier_of(array $ev): bool {
     return role() === 'kassier' && (bool)q("SELECT 1 FROM reg_event_users WHERE event_id=? AND user_id=?", [$ev['id'], uid()])->fetch();
 }
-function can_cash(array $ev): bool { return can_event($ev) || is_kassier_of($ev); }   // bezahlt / zurücksetzen / bearbeiten / löschen (Admin, Organisationsleitung des Turniers, freigegebener Kassier)
+function can_cash(array $ev): bool { return can_event($ev) || is_kassier_of($ev); }   // bezahlt / zurücksetzen / bearbeiten / löschen (Admin, Organisationsleitung des Turniers, freigegebene Kassier:in)
 function can_view(array $ev): bool { return can_event($ev) || is_kassier_of($ev); }
 function deny(): never { http_response_code(403); exit('Keine Berechtigung.'); }
 
@@ -191,7 +193,7 @@ function page_head(string $title, string $nav = '', ?string $logo = null): void 
     echo '<!doctype html><html lang="' . lang() . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">'
        . '<meta name="theme-color" content="#005f6a"><title>' . e($title) . '</title><link rel="stylesheet" href="style.css?v=' . (int)@filemtime(__DIR__ . '/style.css') . '"></head><body>'
        . '<a class="skip" href="#main">' . e(t('Zum Inhalt springen')) . '</a>'
-       . '<header class="top"><div class="top-in"><a class="brand" href="index.php">' . logo_html() . '<strong>' . e(site_title()) . '</strong></a>'
+       . '<header class="top"><div class="top-in"><a class="brand" href="index.php"' . (site_title_hidden() ? ' aria-label="' . e(site_title()) . '"' : '') . '>' . logo_html() . (site_title_hidden() ? '' : '<strong>' . e(site_title()) . '</strong>') . '</a>'
        . ($nav !== '' ? '<nav class="topnav">' . $nav . '</nav>' : '') . $sw . '</div></header><main id="main">';
     show_flash();
 }
@@ -579,12 +581,15 @@ function ins(string $table, array $row): int {
     return (int)db()->lastInsertId();
 }
 function ianseo_opts(int $to): array {
-    $d = $c = [];
+    $d = $c = $cs = [];
     try {
         foreach (q("SELECT DivId,DivDescription FROM Divisions WHERE DivTournament=? AND DivAthlete=1 ORDER BY DivViewOrder", [$to]) as $r) $d[$r['DivId']] = $r['DivDescription'];
         foreach (q("SELECT ClId,ClDescription FROM Classes WHERE ClTournament=? AND ClAthlete=1 ORDER BY ClViewOrder", [$to]) as $r) $c[$r['ClId']] = $r['ClDescription'];
     } catch (Throwable $x) {}
-    return ['div' => $d, 'cls' => $c];
+    try {         // Geschlecht je Altersklasse: 0 = männlich, 1 = weiblich, -1 = beide (fehlt die Spalte, werden alle Klassen für beide Geschlechter angeboten)
+        foreach (q("SELECT ClId,ClSex FROM Classes WHERE ClTournament=? AND ClAthlete=1", [$to]) as $r) $cs[$r['ClId']] = (int)$r['ClSex'];
+    } catch (Throwable $x) {}
+    return ['div' => $d, 'cls' => $c, 'clsex' => $cs];
 }
 function ianseo_country(int $to, string $club, string $code = ''): int {
     $club = trim($club) !== '' ? trim($club) : 'Einzel';

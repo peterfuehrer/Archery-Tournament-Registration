@@ -1,16 +1,16 @@
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
 :root{--petrol:#005f6a;--petrol-d:#00464f;--petrol-l:#e3f1f3;--ink:#293133;--mut:#5b6669;--bg:#f0f4f5;--card:#fff;--line:#d3dcde;--ok:#1f7a4d;--err:#b3261e}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;flex-direction:column}
-main{flex:1;width:100%;max-width:1100px;margin:0 auto;padding:1.25rem}
+main{flex:1;width:100%;max-width:none;margin:0 auto;padding:1.25rem}
 a{color:var(--petrol)}
 h2{font-size:1.65rem;margin:.4rem 0 .9rem;line-height:1.2}h3{margin:1.4rem 0 .5rem}h4{margin:.2rem 0 .5rem}
 .skip{position:absolute;left:-999px;top:0;background:#fff;color:var(--ink);padding:.5rem 1rem;z-index:100}.skip:focus{left:0}
 
 /* Header (petrol) */
 .top{background:var(--petrol);color:#fff}
-.top-in{max-width:1100px;margin:0 auto;padding:.7rem 1.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.2rem}
+.top-in{max-width:none;margin:0 auto;padding:.7rem 1.25rem;display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.2rem}
 .top a{color:#fff;text-decoration:none}
 .brand{display:flex;align-items:center;gap:.8rem;font-size:1.15rem;min-width:0}
 .brand strong{overflow-wrap:anywhere}
@@ -89,7 +89,7 @@ code{background:#e8eff0;padding:.1rem .3rem;border-radius:4px;font-size:.9em;ove
 
 /* Footer (petrol) */
 .foot{background:var(--petrol);color:#e6f3f5;margin-top:2.5rem;font-size:.92rem}
-.foot-in{max-width:1100px;margin:0 auto;padding:1.2rem 1.25rem;display:flex;flex-wrap:wrap;gap:1rem 2rem;justify-content:space-between}
+.foot-in{max-width:none;margin:0 auto;padding:1.2rem 1.25rem;display:flex;flex-wrap:wrap;gap:1rem 2rem;justify-content:space-between}
 .foot-l,.foot-r{display:flex;flex-direction:column;gap:.6rem;min-width:0}
 .foot-r{align-items:flex-end;text-align:right;max-width:520px}
 .foot-r p{margin:0}.foot .tm{font-size:.75rem;opacity:.85}
@@ -104,7 +104,7 @@ code{background:#e8eff0;padding:.1rem .3rem;border-radius:4px;font-size:.9em;ove
 /* Cookie-Banner */
 .cookiebar{position:fixed;left:0;right:0;bottom:0;z-index:50;background:#fff;color:var(--ink);border-top:4px solid var(--petrol);box-shadow:0 -6px 24px rgba(0,0,0,.18)}
 .cookiebar[hidden]{display:none}
-.cookiebar-in{max-width:1100px;margin:0 auto;padding:1rem 1.25rem;display:flex;gap:1rem 2rem;align-items:center;justify-content:space-between;flex-wrap:wrap;max-height:80vh;overflow:auto}
+.cookiebar-in{max-width:none;margin:0 auto;padding:1rem 1.25rem;display:flex;gap:1rem 2rem;align-items:center;justify-content:space-between;flex-wrap:wrap;max-height:80vh;overflow:auto}
 .cb-text{flex:1;min-width:260px}.cb-text p{margin:.3rem 0}
 .cb-text summary{cursor:pointer;color:var(--petrol);font-weight:600}
 .cb-btns{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}

@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
 // Englische Übersetzungen (Schlüssel = deutscher Originaltext). Fehlt ein Eintrag, wird der deutsche Text angezeigt.
 return [
     'Bitte einen Verein wählen (oder „Anderer Verein“).' => 'Please choose a club (or "Other club").',
@@ -15,6 +15,7 @@ return [
     'Bitte einen Durchgang wählen.' => 'Please choose a session.',
     'Bitte Bogenklasse wählen.' => 'Please choose a bow division.',
     'Bitte Altersklasse wählen.' => 'Please choose an age class.',
+    'Diese Altersklasse passt nicht zum gewählten Geschlecht.' => 'This age class does not match the selected gender.',
     'Diese Bogenklasse ist in diesem Durchgang nicht zugelassen.' => 'This bow division is not permitted in this session.',
     'Bitte alle 3 Turniere angeben.' => 'Please enter all 3 tournaments.',
     'Bitte Jahr (4-stellig) und Turnier der ÖM/ÖSTM angeben.' => 'Please enter the year (4 digits) and tournament of the Austrian Championship.',
@@ -61,6 +62,7 @@ return [
     'Anderer Verein / Einzelstarter' => 'Other club / individual archer',
     'Vereinsname (bei „Anderer Verein“ bzw. Ausland)' => 'Club name (for "Other club" or foreign archers)',
     'Turnier' => 'Tournament',
+    'Turnierdurchgänge' => 'Tournament sessions',
     'Durchgang' => 'Session',
     'Starter' => 'starters',
     'Bogenklasse' => 'Bow division',

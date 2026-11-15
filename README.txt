@@ -1,5 +1,5 @@
 Turnier-Anmeldeplattform für ianseo / Tournament registration platform for ianseo
-Copyright (C) 2026 Peter Führer – Version 2026.11.15-a
+Copyright (C) 2026 Peter Führer – Version 2026.11.15-7
 
 Dieses Projekt ist freie Software und wird unter der GNU Affero General Public License v3 (AGPLv3) veröffentlicht. Die AGPLv3 ist eine von der
 Open Source Initiative (OSI) anerkannte Lizenz; das Projekt entspricht den Kriterien der Open Source Definition. Lizenztext: Datei LICENSE.
@@ -20,9 +20,9 @@ UPDATE
   verwendet, solange dort nichts gespeichert ist.
 
 ROLLEN
-- Administrator: alles. Organisationsleitung: Turnieranmeldungen anlegen, EIGENE Turniere bearbeiten/löschen, Kassiere freigeben, Kassier-Rechte für eigene Turniere.
-- Kassier: nur für freigegebene Turniere – bezahlt setzen, zurücksetzen, Anmeldungen bearbeiten, verschieben, löschen.
-- Auswerter: bis zu 3 je Turnier (Turnier-Einstellungen -> Verantwortliche), gleiche Rechte wie die Organisationsleitung für dieses Turnier, aber ohne Anlegen neuer Turniere und ohne Vergabe weiterer Auswerter; werden auf der öffentlichen Seite nicht angezeigt.
+- Administrator: alles. Organisationsleitung: Turnieranmeldungen anlegen, EIGENE Turniere bearbeiten/löschen, Kassier:innen freigeben (höchstens 2 je Turnier), Auswertung vergeben (höchstens 3 je Turnier), Kassier:in-Rechte für eigene Turniere.
+- Kassier:in: nur für freigegebene Turniere – bezahlt setzen, zurücksetzen, Anmeldungen bearbeiten, verschieben, löschen.
+- Auswertung: gleiche Rechte wie die Organisationsleitung (Turniere anlegen und bearbeiten, Kassier:innen und Auswertung vergeben); zusätzlich bis zu 3 Personen je Turnier zuweisbar (Turnier-Einstellungen -> Verantwortliche). Auf der öffentlichen Seite wird nur der Inhaber eines Turniers genannt, zugewiesene Auswertung nie.
 
 STAMMDATEN-CSV (Backend -> Stammdaten): Lizenznummer; Vorname; Nachname; Vereinsnummer; Vereinsname; Bundeslandkürzel; Bundeslandname
 - Daraus entstehen Schützen- und Vereinsliste. Anmeldung: Lizenznummer wird geprüft (Name UND Verein; Groß-/Kleinschreibung, Akzente und Leerzeichen
@@ -51,12 +51,12 @@ GESCHLECHT IM ABGLEICH: Die Stammdaten-CSV kann optional die Spalte "Geschlecht"
 EXTERNE SQL-DATENBANK (optional, nur Lesen): Backend -> Einstellungen -> "Externe SQL-Datenbank": Typ (MySQL/MariaDB, PostgreSQL, SQL Server), Server, Datenbank, Benutzer, Passwort, Tabelle/View und Spalten
   (Lizenznummer, Vor-/Nachname, Verein, Geschlecht, gültig). Reihenfolge der Quellen: lokale Stammdaten -> SQL -> API. Nur ein SELECT mit gebundenem Parameter; Bezeichner werden geprüft. Eigenen Lese-Benutzer verwenden!
 PROTOKOLL: Backend -> Protokoll: Anmeldungen, Zahlungen, Änderungen, Verschiebungen, Löschungen, Importe, ianseo-Übertragungen, Öffnen/Schließen (mit Zeit und Benutzer). Filter, CSV-Export, automatische Löschung nach 24 Monaten.
-  Sichtbar: Administrator (alles), Organisationsleitung und Kassier (nur eigene bzw. freigegebene Turniere).
+  Sichtbar: Administrator (alles), Organisationsleitung, Auswertung und Kassier:in (nur eigene bzw. freigegebene Turniere).
 E-MAIL-TEXTE JE TURNIER: Turnier-Einstellungen -> "E-Mail-Texte": eigener Betreff und Text (Deutsch/Englisch) für die Eingangsbestätigung und die Startplatz-Bestätigung, mit Platzhaltern wie {vorname}, {turnier}, {verwendungszweck}, {paypal}. Leer = Standardtext. Testmail-Knopf vorhanden.
 ANMELDESTART: Turnier-Einstellungen -> "Anmeldestart": Anmeldung erst ab diesem Tag möglich; optional "Zum Anmeldestart automatisch auf Anmeldung offen schalten" (einmalig, ein späteres manuelles Schließen bleibt bestehen). Platzhalter {nenngeld} und {anmeldestart} in E-Mails (Groß-/Kleinschreibung egal).
 STATISTIK, FILTER, RUNDMAIL (Backend): Turnierliste -> "Statistik": je Turnier Anzahl Anmeldungen bezahlt/nicht bezahlt, Starter/Warteliste, je Durchgang, je Bogenklasse, je Altersklasse sowie Bogenklasse x Altersklasse (Matrix und Detailliste mit bezahlt/offen);
   filterbar nach Durchgang und Zahlung, Export als CSV. Seite "Anmeldungen": Suche (Name, Verein, Lizenz, E-Mail, Referenz; Groß-/Kleinschreibung, Akzente egal) und Filter nach Durchgang, Bogenklasse, Altersklasse, Zahlung und Status; der CSV-Export gilt für die Filterauswahl.
-  Rundmail (Administrator, Organisationsleitung, freigegebener Kassier): Empfänger über dieselben Filter wählen (alle, je Durchgang, je Bogen-/Altersklasse, bezahlt, nicht bezahlt), Einzelne abwählen, Text mit Platzhaltern ({vorname}, {turnier}, {verwendungszweck} ...), optional englische Fassung,
+  Rundmail (Administrator, Organisationsleitung, freigegebene Kassier:in): Empfänger über dieselben Filter wählen (alle, je Durchgang, je Bogen-/Altersklasse, bezahlt, nicht bezahlt), Einzelne abwählen, Text mit Platzhaltern ({vorname}, {turnier}, {verwendungszweck} ...), optional englische Fassung,
   Testmail an sich selbst, Kopie an sich selbst. Antworten gehen an die E-Mail-Adresse des Absenders (Mein Konto). Jede Rundmail steht im Protokoll. Voraussetzung: Mailserver ist unter Einstellungen aktiviert. Höchstens 500 Anmeldungen pro Versand.
 
 === ENGLISH =====================================================================================================
@@ -74,7 +74,7 @@ UPDATE
 ROLES
 - Administrator: everything. Organiser: create registrations, edit/delete OWN tournaments, release treasurers, treasurer rights for own tournaments.
 - Treasurer: only released tournaments – mark paid, reset, edit, move, delete registrations.
-- Evaluator ("Auswerter"): up to 3 per tournament (tournament settings -> responsible persons), same rights as the organiser for that tournament, but cannot create tournaments or assign further evaluators; not shown on the public pages.
+- Evaluation ("Auswertung"): same rights as the organiser (create and edit tournaments, assign treasurers and evaluation); additionally up to 3 people can be assigned per tournament (tournament settings -> responsible persons). Public pages only name the owner of a tournament, never assigned evaluators.
 
 MASTER DATA CSV: licence number; first name; last name; club number; club name; state code; state name. Registration checks licence number, name AND club
 (case, accents and spaces are ignored). Optional auto-fill of name and club after entering the licence number (Settings -> Features).

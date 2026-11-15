@@ -1,6 +1,6 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-a */
-const ADMIN_VERSION = '2026.11.15-a';
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
+const ADMIN_VERSION = '2026.11.15-7';
 require __DIR__ . '/lib.php';
 $p = (string)($_GET['p'] ?? 'events');
 if ($p === 'logout') { session_destroy(); go('admin.php'); }
@@ -34,11 +34,11 @@ function statuses(int $eid): array {
     foreach (q("SELECT id FROM reg_sessions WHERE event_id=?", [$eid]) as $s) { [$a, $b] = lists((int)$s['id']); foreach ($a as $r) $st[$r['id']] = 'Starter'; foreach ($b as $r) $st[$r['id']] = 'Warteliste'; }
     return $st;
 }
-// Protokoll: Filter und Zugriff (Administrator: alles; Organisationsleitung/Kassier: nur ihre Turniere)
+// Protokoll: Filter und Zugriff (Administrator: alles; Organisationsleitung/Auswertung/Kassier:in: nur ihre Turniere)
 function log_scope(): array {
     $sqlE = "SELECT id,title FROM reg_events";
     if (role() === 'orga') $evs = q("$sqlE WHERE owner_id=? ORDER BY id DESC", [uid()])->fetchAll();
-    elseif (role() === 'auswerter') $evs = q("$sqlE WHERE id IN (SELECT event_id FROM reg_event_scorers WHERE user_id=?) ORDER BY id DESC", [uid()])->fetchAll();
+    elseif (role() === 'auswerter') $evs = q("$sqlE WHERE owner_id=? OR id IN (SELECT event_id FROM reg_event_scorers WHERE user_id=?) ORDER BY id DESC", [uid(), uid()])->fetchAll();
     elseif (role() === 'kassier') $evs = q("$sqlE WHERE id IN (SELECT event_id FROM reg_event_users WHERE user_id=?) ORDER BY id DESC", [uid()])->fetchAll();
     else $evs = q("$sqlE ORDER BY id DESC")->fetchAll();
     $ids = array_map('intval', array_column($evs, 'id'));
@@ -124,12 +124,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             q("UPDATE reg_events SET title=?,info=?,pay_info=?,ref_text=?,is_open=?,published=?,deadline=?,kind=?,owner_id=?,doc=?,doc_url=?,logo=?,allow_nolic=?,paypal_me=?,fee=?,mail_tpl=?,reg_start=?,auto_open=? WHERE id=?",
               [trim((string)$_POST['title']), trim((string)$_POST['info']), trim((string)$_POST['pay_info']), trim((string)$_POST['ref_text']), isset($_POST['is_open']) ? 1 : 0, isset($_POST['published']) ? 1 : 0,
                ($_POST['deadline'] ?? '') ?: null, ($_POST['kind'] ?? '') === 'oem' ? 'oem' : 'normal', $owner, $doc, $url, $logo, isset($_POST['allow_nolic']) ? 1 : 0, mb_substr((string)preg_replace('~[^A-Za-z0-9._/:-]~', '', trim((string)($_POST['paypal_me'] ?? ''))), 0, 80), mb_substr((string)preg_replace('/[^0-9.,]/', '', (string)($_POST['fee'] ?? '')), 0, 12), $tpl, $rs, $autoOpen, $id]);
-            q("DELETE FROM reg_event_users WHERE event_id=?", [$id]);                       // Kassiere freigeben
-            foreach ((array)($_POST['kassier'] ?? []) as $k)
-                if (q("SELECT 1 FROM reg_users WHERE id=? AND role='kassier'", [(int)$k])->fetch()) q("INSERT IGNORE INTO reg_event_users (event_id,user_id) VALUES (?,?)", [$id, (int)$k]);
-            if (is_admin() || role() === 'orga') {                                          // Auswerter (höchstens 3): nur Administrator und Organisationsleitung vergeben sie
+            $kz = array_values(array_unique(array_map('intval', (array)($_POST['kassier'] ?? []))));                // Kassier:innen freigeben (höchstens 2)
+            if (count($kz) > 2) { flash('Höchstens 2 Kassier:innen je Turnier – es wurden nur die ersten 2 übernommen.', 'err'); $kz = array_slice($kz, 0, 2); }
+            q("DELETE FROM reg_event_users WHERE event_id=?", [$id]);
+            foreach ($kz as $k)
+                if (q("SELECT 1 FROM reg_users WHERE id=? AND role='kassier'", [$k])->fetch()) q("INSERT IGNORE INTO reg_event_users (event_id,user_id) VALUES (?,?)", [$id, $k]);
+            if (can_event($ev)) {                                                          // Auswertung (höchstens 3) vergeben: Administrator, Organisationsleitung, Auswertung
                 $aw = array_values(array_unique(array_map('intval', (array)($_POST['auswerter'] ?? []))));
-                if (count($aw) > 3) { flash('Höchstens 3 Auswerter je Turnier – es wurden nur die ersten 3 übernommen.', 'err'); $aw = array_slice($aw, 0, 3); }
+                if (count($aw) > 3) { flash('Höchstens 3 Personen der Auswertung je Turnier – es wurden nur die ersten 3 übernommen.', 'err'); $aw = array_slice($aw, 0, 3); }
                 q("DELETE FROM reg_event_scorers WHERE event_id=?", [$id]);
                 foreach ($aw as $k) if (q("SELECT 1 FROM reg_users WHERE id=? AND role='auswerter'", [$k])->fetch()) q("INSERT IGNORE INTO reg_event_scorers (event_id,user_id) VALUES (?,?)", [$id, $k]);
             }
@@ -215,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 catch (Throwable $x) { flash('Gespeichert, aber ianseo-Update fehlgeschlagen: ' . $x->getMessage(), 'err'); }
             } else flash('Gespeichert.');
             go('admin.php?p=entries&id=' . $ev['id']);
-        case 'send_mass':        // Rundmail an ausgewählte Anmeldungen (Administrator, Organisationsleitung, freigegebener Kassier)
+        case 'send_mass':        // Rundmail an ausgewählte Anmeldungen (Administrator, Organisationsleitung, freigegebene Kassier:in)
             $ev = get_event($id); if (!can_cash($ev)) deny();
             $f = entry_filter_params($_POST); $fq = entry_filter_query($f);
             $back = 'admin.php?p=mail&id=' . $id . ($fq !== '' ? '&' . $fq : '');
@@ -389,7 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             go('admin.php?p=settings&open=source');
         case 'set_general':
             if (!is_admin()) deny();
-            $ti = trim((string)($_POST['site_title'] ?? '')); if ($ti !== '') set_setting('site_title', mb_substr($ti, 0, 100));
+            $ti = trim((string)($_POST['site_title'] ?? '')); set_setting('site_title', mb_substr($ti, 0, 100)); set_setting('site_title_hide', $ti === '' ? '1' : '0');      // leer = nur Logo
             flash('Gespeichert.'); go('admin.php?p=settings&open=general');
         case 'set_features':
             if (!is_admin()) deny();
@@ -476,7 +478,7 @@ try {
 if ($p === 'events') {
     $sql = "SELECT v.*,u.username,u.fullname FROM reg_events v LEFT JOIN reg_users u ON u.id=v.owner_id";
     if (role() === 'orga') $rows = q("$sql WHERE v.owner_id=? ORDER BY v.id DESC", [uid()])->fetchAll();
-    elseif (role() === 'auswerter') $rows = q("$sql WHERE v.id IN (SELECT event_id FROM reg_event_scorers WHERE user_id=?) ORDER BY v.id DESC", [uid()])->fetchAll();
+    elseif (role() === 'auswerter') $rows = q("$sql WHERE v.owner_id=? OR v.id IN (SELECT event_id FROM reg_event_scorers WHERE user_id=?) ORDER BY v.id DESC", [uid(), uid()])->fetchAll();
     elseif (role() === 'kassier') $rows = q("$sql WHERE v.id IN (SELECT event_id FROM reg_event_users WHERE user_id=?) ORDER BY v.id DESC", [uid()])->fetchAll();
     else $rows = q("$sql ORDER BY v.id DESC")->fetchAll();
     echo '<h2>Turniere</h2><div class="box scroll"><table><thead><tr><th>Titel</th><th>Status</th><th>Organisationsleitung</th><th></th></tr></thead><tbody>';
@@ -520,27 +522,6 @@ if ($p === 'event') {
       </div>
       <p class="info wide">Mit Anmeldestart ist die Anmeldung erst ab diesem Tag möglich. „Automatisch auf offen schalten“ setzt „Anmeldung offen“ am Anmeldestart selbst (einmalig, ein späteres manuelles Schließen bleibt bestehen); die Option gilt, solange „Anmeldung offen“ nicht angehakt ist. Lizenzfreie Teilnahme: Haken „Keine Lizenz“ im Formular, Nummern LL1, LL2 …</p>
     </div>
-    <h3>Texte</h3>
-    <div class="box grid">
-      <label class="wide">Infotext (öffentlich)<textarea name="info" rows="3"><?= e($ev['info']) ?></textarea></label>
-      <label class="wide">Verwendungszweck<input name="ref_text" maxlength="200" value="<?= e($ev['ref_text']) ?>" placeholder="z. B. Krampusturnier 2026 {nachname} {vorname}"><small class="hint">Freitext mit den Platzhaltern {ref} {vorname} {nachname}. Leer = Referenznummer.</small></label>
-      <label class="wide">Zahlungsinfo<textarea name="pay_info" rows="3"><?= e($ev['pay_info']) ?></textarea><small class="hint">IBAN, Betrag … – wird nach der Anmeldung gezeigt.</small></label>
-      <label>Nenngeld in EUR<input name="fee" maxlength="12" inputmode="decimal" value="<?= e($ev['fee']) ?>" placeholder="z. B. 25,00"><small class="hint">Optional. Für den PayPal-Link und die Mail-Variable {nenngeld}.</small></label>
-      <label>PayPal.Me-Name<input name="paypal_me" maxlength="80" value="<?= e($ev['paypal_me']) ?>" placeholder="z. B. paypal.me/meinverein"><small class="hint">Optional, alternative Zahlung.</small></label>
-    </div>
-    <h3>E-Mail-Texte (optional)</h3>
-    <?php $tp = json_decode((string)($ev['mail_tpl'] ?? ''), true) ?: []; $tv = fn($k, $l, $f) => e($tp[$k][$l][$f] ?? ''); ?>
-    <div class="box">
-      <p class="info">Leer = Standardtext. Platzhalter: <code>{vorname}</code> <code>{nachname}</code> <code>{name}</code> <code>{turnier}</code> <code>{durchgang}</code> <code>{ref}</code> <code>{verwendungszweck}</code> <code>{zahlungsinfo}</code> <code>{paypal}</code> <code>{verein}</code> <code>{lizenz}</code> <code>{bogenklasse}</code> <code>{altersklasse}</code> <code>{anmeldeschluss}</code> <code>{anmeldestart}</code> <code>{nenngeld}</code> <code>{organisation}</code> (Groß-/Kleinschreibung egal). Ist nur eine Sprache ausgefüllt, wird sie auch für die andere verwendet. Reiner Text, Zeilenumbrüche bleiben erhalten. Nach dem Speichern kannst du unten eine Testmail an dich senden.</p>
-      <?php foreach (['reg' => 'E-Mail nach der Anmeldung (Eingangsbestätigung)', 'ok' => 'E-Mail bei bestätigtem Startplatz (nach Zahlungseingang)'] as $k => $lbl) { ?>
-      <fieldset><legend><?= e($lbl) ?></legend><div class="grid">
-        <label>Betreff (Deutsch)<input name="tpl[<?= $k ?>][de][s]" maxlength="200" value="<?= $tv($k, 'de', 's') ?>" placeholder="Standard: Anmeldung eingegangen: {turnier}"></label>
-        <label>Betreff (Englisch)<input name="tpl[<?= $k ?>][en][s]" maxlength="200" value="<?= $tv($k, 'en', 's') ?>"></label>
-        <label>Text (Deutsch)<textarea rows="7" name="tpl[<?= $k ?>][de][b]"><?= $tv($k, 'de', 'b') ?></textarea></label>
-        <label>Text (Englisch)<textarea rows="7" name="tpl[<?= $k ?>][en][b]"><?= $tv($k, 'en', 'b') ?></textarea></label>
-      </div></fieldset>
-      <?php } ?>
-    </div>
     <h3>Ausschreibung und Logo</h3>
     <div class="box grid">
       <label>Ausschreibung hochladen (PDF, max. 10 MB)<input type="file" name="doc" accept="application/pdf"></label>
@@ -554,18 +535,26 @@ if ($p === 'event') {
       <?php if (is_admin()) { ?><label>Organisationsleitung<select name="owner_id"><option value="0">–</option>
         <?php foreach (q("SELECT id,username,fullname FROM reg_users WHERE role IN ('admin','orga') ORDER BY fullname") as $u) echo '<option value="' . $u['id'] . '"' . ($u['id'] == $ev['owner_id'] ? ' selected' : '') . '>' . e($u['fullname'] ?: $u['username']) . '</option>'; ?>
       </select></label><?php } ?>
-      <div class="wide"><strong>Kassiere für dieses Turnier freigeben</strong><div class="divs">
+      <div class="wide"><strong>Kassier:innen für dieses Turnier freigeben (höchstens 2)</strong><div class="divs">
         <?php $ks = q("SELECT id,username,fullname FROM reg_users WHERE role='kassier' ORDER BY fullname")->fetchAll();
-        if (!$ks) echo '<span class="empty">Noch keine Benutzer mit der Rolle Kassier angelegt.</span>';
-        foreach ($ks as $u) echo '<label class="chk"><input type="checkbox" name="kassier[]" value="' . $u['id'] . '"' . (in_array($u['id'], $assigned) ? ' checked' : '') . '> ' . e($u['fullname'] ?: $u['username']) . '</label>'; ?>
+        if (!$ks) echo '<span class="empty">Noch keine Benutzer mit der Rolle Kassier:in angelegt.</span>';
+        foreach ($ks as $u) echo '<label class="chk"><input type="checkbox" class="ksc" name="kassier[]" value="' . $u['id'] . '"' . (in_array($u['id'], $assigned) ? ' checked' : '') . ' onchange="if(document.querySelectorAll(\'.ksc:checked\').length>2){this.checked=false;alert(\'Höchstens 2 Kassier:innen je Turnier.\')}"> ' . e($u['fullname'] ?: $u['username']) . '</label>'; ?>
       </div></div>
-      <?php if (is_admin() || role() === 'orga') { ?><div class="wide"><strong>Auswerter für dieses Turnier (höchstens 3)</strong>
-        <p class="info">Gleiche Rechte wie die Organisationsleitung für dieses Turnier. Auswerter werden auf der öffentlichen Seite nicht angezeigt.</p><div class="divs">
+      <?php if (can_event($ev)) { ?><div class="wide"><strong>Auswertung für dieses Turnier (höchstens 3)</strong>
+        <p class="info">Gleiche Rechte wie die Organisationsleitung für dieses Turnier. Die Auswertung wird auf der öffentlichen Seite nicht angezeigt.</p><div class="divs">
         <?php $au = q("SELECT id,username,fullname FROM reg_users WHERE role='auswerter' ORDER BY fullname")->fetchAll();
         $asg = array_map('intval', q("SELECT user_id FROM reg_event_scorers WHERE event_id=?", [$ev['id']])->fetchAll(PDO::FETCH_COLUMN));
-        if (!$au) echo '<span class="empty">Noch keine Benutzer mit der Rolle Auswerter angelegt (Benutzer → Neuen Benutzer anlegen).</span>';
-        foreach ($au as $u) echo '<label class="chk"><input type="checkbox" class="awc" name="auswerter[]" value="' . $u['id'] . '"' . (in_array((int)$u['id'], $asg, true) ? ' checked' : '') . ' onchange="if(document.querySelectorAll(\'.awc:checked\').length>3){this.checked=false;alert(\'Höchstens 3 Auswerter je Turnier.\')}"> ' . e($u['fullname'] ?: $u['username']) . '</label>'; ?>
+        if (!$au) echo '<span class="empty">Noch keine Benutzer mit der Rolle Auswertung angelegt (Benutzer → Neuen Benutzer anlegen).</span>';
+        foreach ($au as $u) echo '<label class="chk"><input type="checkbox" class="awc" name="auswerter[]" value="' . $u['id'] . '"' . (in_array((int)$u['id'], $asg, true) ? ' checked' : '') . ' onchange="if(document.querySelectorAll(\'.awc:checked\').length>3){this.checked=false;alert(\'Höchstens 3 Personen der Auswertung je Turnier.\')}"> ' . e($u['fullname'] ?: $u['username']) . '</label>'; ?>
       </div></div><?php } ?>
+    </div>
+    <h3>Texte</h3>
+    <div class="box grid">
+      <label class="wide">Infotext (öffentlich)<textarea name="info" rows="3"><?= e($ev['info']) ?></textarea></label>
+      <label class="wide">Verwendungszweck<input name="ref_text" maxlength="200" value="<?= e($ev['ref_text']) ?>" placeholder="z. B. Krampusturnier 2026 {nachname} {vorname}"><small class="hint">Freitext mit den Platzhaltern {ref} {vorname} {nachname}. Leer = Referenznummer.</small></label>
+      <label class="wide">Zahlungsinfo<textarea name="pay_info" rows="3"><?= e($ev['pay_info']) ?></textarea><small class="hint">IBAN, Betrag … – wird nach der Anmeldung gezeigt.</small></label>
+      <label>Nenngeld in EUR<input name="fee" maxlength="12" inputmode="decimal" value="<?= e($ev['fee']) ?>" placeholder="z. B. 25,00"><small class="hint">Optional. Für den PayPal-Link und die Mail-Variable {nenngeld}.</small></label>
+      <label>PayPal.Me-Name<input name="paypal_me" maxlength="80" value="<?= e($ev['paypal_me']) ?>" placeholder="z. B. paypal.me/meinverein"><small class="hint">Optional, alternative Zahlung.</small></label>
     </div>
     <h3>Durchgänge (max. 10)</h3>
     <?php $ia = q("SELECT SesOrder FROM Session WHERE SesTournament=? AND SesType='Q' ORDER BY SesOrder", [$ev['to_id']])->fetchAll(PDO::FETCH_COLUMN); ?>
@@ -579,7 +568,21 @@ if ($p === 'event') {
       <td><input type="date" name="s[<?= $n ?>][dl]" value="<?= e($s['deadline'] ?? '') ?>"></td>
       <td><div class="divs"><?php foreach ($o['div'] as $k => $d) echo '<label class="chk" title="' . e($d) . '"><input type="checkbox" name="s[' . $n . '][div][]" value="' . e($k) . '"' . (in_array((string)$k, $sel, true) ? ' checked' : '') . '> ' . e($k . ' ' . $d) . '</label>'; ?></div></td></tr>
     <?php } ?></tbody></table></div>
+    <h3>E-Mail-Texte (optional)</h3>
+    <?php $tp = json_decode((string)($ev['mail_tpl'] ?? ''), true) ?: []; $tv = fn($k, $l, $f) => e($tp[$k][$l][$f] ?? ''); ?>
+    <div class="box">
+      <p class="info">Leer = Standardtext. Platzhalter: <code>{vorname}</code> <code>{nachname}</code> <code>{name}</code> <code>{turnier}</code> <code>{durchgang}</code> <code>{ref}</code> <code>{verwendungszweck}</code> <code>{zahlungsinfo}</code> <code>{paypal}</code> <code>{verein}</code> <code>{lizenz}</code> <code>{bogenklasse}</code> <code>{altersklasse}</code> <code>{anmeldeschluss}</code> <code>{anmeldestart}</code> <code>{nenngeld}</code> <code>{organisation}</code> (Groß-/Kleinschreibung egal). Ist nur eine Sprache ausgefüllt, wird sie auch für die andere verwendet. Reiner Text, Zeilenumbrüche bleiben erhalten. Nach dem Speichern kannst du unten eine Testmail an dich senden.</p>
+      <?php foreach (['reg' => 'E-Mail nach der Anmeldung (Eingangsbestätigung)', 'ok' => 'E-Mail bei bestätigtem Startplatz (nach Zahlungseingang)'] as $k => $lbl) { ?>
+      <fieldset><legend><?= e($lbl) ?></legend><div class="grid">
+        <label>Betreff (Deutsch)<input name="tpl[<?= $k ?>][de][s]" maxlength="200" value="<?= $tv($k, 'de', 's') ?>" placeholder="Standard: Anmeldung eingegangen: {turnier}"></label>
+        <label>Betreff (Englisch)<input name="tpl[<?= $k ?>][en][s]" maxlength="200" value="<?= $tv($k, 'en', 's') ?>"></label>
+        <label>Text (Deutsch)<textarea rows="7" name="tpl[<?= $k ?>][de][b]"><?= $tv($k, 'de', 'b') ?></textarea></label>
+        <label>Text (Englisch)<textarea rows="7" name="tpl[<?= $k ?>][en][b]"><?= $tv($k, 'en', 'b') ?></textarea></label>
+      </div></fieldset>
+      <?php } ?>
+    </div>
     <button>Speichern und mit ianseo abgleichen</button></form>
+    <h3>Testmail</h3>
     <form method="post" class="box grid"><?= tf() ?><input type="hidden" name="a" value="mail_tpl_test"><input type="hidden" name="id" value="<?= $ev['id'] ?>">
       <label>Testmail: Art<select name="kind"><option value="reg">Nach der Anmeldung</option><option value="ok">Startplatz bestätigt</option></select></label>
       <label>Sprache<select name="lang"><option value="de">Deutsch</option><option value="en">Englisch</option></select></label>
@@ -689,7 +692,7 @@ if ($p === 'users') {
        . '<label>Passwort (min. 6 Zeichen)<input type="password" name="pw" minlength="6" required></label><label>Rolle<select name="role">';
     foreach (ROLES as $k => $l) echo '<option value="' . $k . '">' . e($l) . '</option>';
     echo '</select></label><button>Anlegen</button></form>'
-       . '<p class="info">Administrator: darf alles. Organisationsleitung: legt Turnieranmeldungen an, bearbeitet und löscht eigene Turniere, gibt Kassiere frei. Kassier: nur für freigegebene Turniere – bezahlt setzen, zurücksetzen, Starter bearbeiten und löschen.</p>';
+       . '<p class="info">Administrator: darf alles. Organisationsleitung: legt Turnieranmeldungen an, bearbeitet und löscht eigene Turniere, gibt Kassier:innen frei (höchstens 2 je Turnier) und vergibt die Auswertung (höchstens 3 je Turnier). Auswertung: gleiche Rechte wie die Organisationsleitung. Kassier:in: nur für freigegebene Turniere – bezahlt setzen, zurücksetzen, Starter bearbeiten und löschen.</p>';
 }
 if ($p === 'user') {
     $tid = is_admin() ? (int)($_GET['id'] ?? uid()) : uid();
@@ -772,7 +775,7 @@ if ($p === 'settings') {
     $secSel = fn(string $name, string $cur) => '<select name="' . $name . '"><option value="tls"' . $sl($cur, 'tls') . '>TLS (STARTTLS)</option><option value="ssl"' . $sl($cur, 'ssl') . '>SSL</option><option value="none"' . $sl($cur, '') . '>keine</option></select>';
     echo '<h2>Einstellungen</h2>';
     $so = fn(string $k) => (($_GET['open'] ?? 'general') === $k) ? ' open' : '';
-    echo '<details class="sect"' . $so('general') . '><summary>Allgemein</summary><div class="sect-body"><form method="post" class="box grid">' . tf() . '<input type="hidden" name="a" value="set_general"><label class="wide">Name der Plattform (Seitentitel in der Kopfzeile)<input name="site_title" maxlength="100" value="' . e(site_title()) . '" required></label><button class="wide">Speichern</button></form>'
+    echo '<details class="sect"' . $so('general') . '><summary>Allgemein</summary><div class="sect-body"><form method="post" class="box grid">' . tf() . '<input type="hidden" name="a" value="set_general"><label class="wide">Name der Plattform (Seitentitel in der Kopfzeile)<input name="site_title" maxlength="100" value="' . e(setting('site_title_hide') === '1' ? '' : site_title()) . '" placeholder="optional"><small class="hint">Optional. Leer = in der Kopfzeile erscheint nur das Logo (ohne Logo wird der Standardname gezeigt).</small></label><button class="wide">Speichern</button></form>'
        . '<form method="post" enctype="multipart/form-data" class="box stack">' . tf() . '<input type="hidden" name="a" value="set_logo"><div class="kv"><span>Seitenlogo (Kopfzeile, max. 100 px hoch und 500 px breit)</span><div>' . (setting('logo') ? logo_html() : '<span class="info">Kein Logo hochgeladen – es werden die Ringe angezeigt.</span>') . '</div></div>'
        . '<label>Logo hochladen (PNG/JPG/WebP, max. 2 MB)<input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label><button>Hochladen</button>' . (setting('logo') ? '<button name="rm_logo" value="1" class="dng">Logo entfernen (Ringe verwenden)</button>' : '') . '</form>';
 
