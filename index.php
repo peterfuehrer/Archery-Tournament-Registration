@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-16 */
 require __DIR__ . '/lib.php';
 $events = q("SELECT * FROM reg_events WHERE published=1 ORDER BY id DESC")->fetchAll();
 $ev = null; $eid = (int)($_GET['e'] ?? 0);
@@ -104,6 +104,7 @@ $allowed = fn(array $s) => implode(', ', array_map($divName, explode(',', $s['di
 if ($done) {
     $pp = paypal_url($ev);
     echo '<section class="box ok"><h3>' . e(t('Anmeldung eingegangen')) . '</h3><p>' . e(t('Du stehst auf der Warteliste, bis die Zahlung verbucht ist. Erst danach rückst du in die Starterliste.')) . '</p>'
+       . ($ev['kind'] === 'oem' ? '<p>' . e(t('Bei ÖM/ÖSTM prüft die Organisation zusätzlich deinen Nachweis (3 Turniere bzw. frühere ÖM/ÖSTM-Teilnahme). Erst wenn Zahlung und Nachweis bestätigt sind, rückst du in die Starterliste.')) . '</p>' : '')
        . '<div class="kv"><span>' . e(t('Verwendungszweck')) . '</span><strong>' . e($purpose) . '</strong></div>' . ($ev['pay_info'] ? '<p>' . nl2br(e($ev['pay_info'])) . '</p>' : '')
        . ($pp !== '' ? '<p><a class="btn" href="' . e($pp) . '" target="_blank" rel="noopener noreferrer">' . e(t('Alternativ: mit PayPal bezahlen')) . '</a></p><p class="hint">' . e(t('Externer Link zu PayPal. Bitte den Verwendungszweck in der PayPal-Nachricht angeben. Die Zahlung wird manuell bestätigt.')) . '</p>' : '')
        . '</section>';

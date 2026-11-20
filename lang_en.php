@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-16 */
 // Englische Übersetzungen (Schlüssel = deutscher Originaltext). Fehlt ein Eintrag, wird der deutsche Text angezeigt.
 return [
     'Bitte einen Verein wählen (oder „Anderer Verein“).' => 'Please choose a club (or "Other club").',
@@ -85,6 +85,7 @@ return [
     'Zugelassen' => 'Permitted',
     'Starterliste' => 'Starting list',
     'Warteliste' => 'Waiting list',
+    'Bei ÖM/ÖSTM prüft die Organisation zusätzlich deinen Nachweis (3 Turniere bzw. frühere ÖM/ÖSTM-Teilnahme). Erst wenn Zahlung und Nachweis bestätigt sind, rückst du in die Starterliste.' => 'For the Austrian Championships the organisers also verify your qualification (3 tournaments or previous participation). Only when payment and qualification are confirmed will you move to the starting list.',
     'Noch niemand.' => 'Nobody yet.',
     'Name' => 'Name',
     'Bogenkl.' => 'Division',
@@ -98,7 +99,7 @@ return [
     'Zum Inhalt springen' => 'Skip to content',
     'Cookie-Einstellungen' => 'Cookie settings',
     'Quellcode' => 'Source code',
-    'Veröffentlicht unter der GNU Affero General Public License v3 (OSI-konforme Open-Source-Lizenz).' => 'Released under the GNU Affero General Public License v3 (an OSI-approved open source licence).',
+    'Veröffentlicht unter der GNU Affero General Public License v3' => 'Released under the GNU Affero General Public License v3',
     'OSI Approved License® – Das OSI-Logo ist eine Marke der Open Source Initiative. Dieses Projekt ist nicht mit der OSI verbunden und wird von ihr nicht unterstützt.' => 'OSI Approved License® – The OSI logo trademark is the trademark of the Open Source Initiative. This project is not affiliated with or endorsed by the OSI.',
     'Cookies und Datenschutz' => 'Cookies and privacy',
     'Diese Website verwendet ausschließlich technisch notwendige Cookies (Sitzung, Sprache, Hinweis-Bestätigung). Es gibt keine Tracking-, Analyse- oder Werbe-Cookies und keine Einbindung externer Dienste. Details in der %s.' => 'This website uses only technically necessary cookies (session, language, notice confirmation). There are no tracking, analytics or advertising cookies and no external services are embedded. Details in the %s.',

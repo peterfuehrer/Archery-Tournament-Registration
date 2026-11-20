@@ -1,5 +1,5 @@
 Turnier-Anmeldeplattform für ianseo / Tournament registration platform for ianseo
-Copyright (C) 2026 Peter Führer – Version 2026.11.15-7
+Copyright (C) 2026 Peter Führer – Version 2026.11.15-16
 
 Dieses Projekt ist freie Software und wird unter der GNU Affero General Public License v3 (AGPLv3) veröffentlicht. Die AGPLv3 ist eine von der
 Open Source Initiative (OSI) anerkannte Lizenz; das Projekt entspricht den Kriterien der Open Source Definition. Lizenztext: Datei LICENSE.
@@ -22,12 +22,16 @@ UPDATE
 ROLLEN
 - Administrator: alles. Organisationsleitung: Turnieranmeldungen anlegen, EIGENE Turniere bearbeiten/löschen, Kassier:innen freigeben (höchstens 2 je Turnier), Auswertung vergeben (höchstens 3 je Turnier), Kassier:in-Rechte für eigene Turniere.
 - Kassier:in: nur für freigegebene Turniere – bezahlt setzen, zurücksetzen, Anmeldungen bearbeiten, verschieben, löschen.
+- Vereinswechsel / Stammdaten-Änderungen: Anmeldeliste -> "Schützenabgleich (Lizenzen)" markiert Anmeldungen, deren Verein von der Schützenliste abweicht ("Verein weicht ab"). Pro Zeile "Verein übernehmen" oder oben "Abweichende Vereine übernehmen (n)" - jeweils nach Bestätigung; bereits in ianseo stehende Starter werden mitaktualisiert (Verein und Bundesland). Turnier-Einstellungen -> Vereine -> "Vereine und Bundesländer in ianseo aktualisieren": zieht Namensänderungen der Vereinsliste nach ianseo und ordnet alle übertragenen Starter neu zu.
+- ianseo-Übertragung: Beim Übertragen eines Starters werden Mannschaftsfinale (EnTeamFEvent) und Mixed Team (EnTeamMixEvent) auf "ja" gesetzt. Das Bundesland des Vereins (Kürzel und Langname aus der Vereinsliste) wird als eigener Eintrag in ianseo (Countries) angelegt und dem Starter als zweite Zugehörigkeit (EnCountry2) zugeordnet; der Verein bleibt in EnCountry. Bereits übertragene Starter erhalten das Bundesland bei der nächsten Bearbeitung des Eintrags, die Team-Haken werden bei ihnen nicht verändert.
+- ÖM/ÖSTM-Nachweis: Anmeldungen zu ÖM/ÖSTM-Turnieren stehen erst auf der Startliste, wenn die Zahlung bestätigt UND der angegebene Nachweis (3 Turniere bzw. frühere ÖM/ÖSTM-Teilnahme) verifiziert ist. Verifizieren dürfen alle außer Kassier:innen (Anmeldeliste -> Nachweis bestätigen). Wird der Nachweis nachträglich geändert, muss er neu verifiziert werden. Anmeldungen, die schon vor dieser Funktion bestanden, gelten als verifiziert.
+- Turnierorganisation: bis zu 3 Personen je Turnier (Turnier-Einstellungen -> Verantwortliche), gleiche Rechte wie die Organisationsleitung für die zugewiesenen Turniere, aber ohne neue Turniere anzulegen. Auf der öffentlichen Seite wird nur die Organisationsleitung genannt.
 - Auswertung: gleiche Rechte wie die Organisationsleitung (Turniere anlegen und bearbeiten, Kassier:innen und Auswertung vergeben); zusätzlich bis zu 3 Personen je Turnier zuweisbar (Turnier-Einstellungen -> Verantwortliche). Auf der öffentlichen Seite wird nur der Inhaber eines Turniers genannt, zugewiesene Auswertung nie.
 
 STAMMDATEN-CSV (Backend -> Stammdaten): Lizenznummer; Vorname; Nachname; Vereinsnummer; Vereinsname; Bundeslandkürzel; Bundeslandname
 - Daraus entstehen Schützen- und Vereinsliste. Anmeldung: Lizenznummer wird geprüft (Name UND Verein; Groß-/Kleinschreibung, Akzente und Leerzeichen
   werden ignoriert). Optional (Einstellungen -> Funktionen): Name und Verein nach Eingabe der Lizenznummer automatisch ergänzen.
-- Vereine werden in ianseo als "BL-Kürzel/Vereinsname" mit der Vereinsnummer als Code angelegt.
+- Vereine werden in ianseo mit dem Namen aus der Vereinsliste (ohne automatisch ergänztes Bundesland-Kürzel) und der Vereinsnummer als Code angelegt.
 
 ANMELDUNGEN: Export/Import je Turnier (CSV, gleiches Format). Lizenzfreie Teilnahme (LL1, LL2 …) je Turnier aktivierbar. Ausländische Schützen: Haken im Formular, Land (IOC-Code).
 PAYPAL (optional): je Turnier "PayPal.Me-Name" und Startgeld – es wird nur ein Link angezeigt (keine Skripte, keine Cookies).
@@ -74,6 +78,10 @@ UPDATE
 ROLES
 - Administrator: everything. Organiser: create registrations, edit/delete OWN tournaments, release treasurers, treasurer rights for own tournaments.
 - Treasurer: only released tournaments – mark paid, reset, edit, move, delete registrations.
+- Club changes / master-data changes: registrations list -> "Schützenabgleich (Lizenzen)" flags registrations whose club differs from the licence list ("Verein weicht ab"). Use "Verein übernehmen" per row or "Abweichende Vereine übernehmen (n)" at the top - each after confirmation; archers already in ianseo are updated as well (club and state). Tournament settings -> Vereine -> "Vereine und Bundesländer in ianseo aktualisieren": pushes club-list name changes to ianseo and reassigns all transferred archers.
+- ianseo transfer: when an archer is transferred, team final (EnTeamFEvent) and mixed team (EnTeamMixEvent) are set to "yes". The club's federal state (code and long name from the club list) is created as its own entry in ianseo (Countries) and assigned to the archer as second affiliation (EnCountry2); the club stays in EnCountry. Archers transferred earlier get the state at the next edit of the entry; their team flags are not changed.
+- Austrian Championships qualification: registrations for ÖM/ÖSTM tournaments only reach the starting list once payment is confirmed AND the stated qualification (3 tournaments or previous participation) is verified. Everyone except treasurers can verify it (registrations list -> Nachweis bestätigen). If the qualification is edited later it must be verified again. Registrations that existed before this feature count as verified.
+- Tournament organisation ("Turnierorganisation"): up to 3 people per tournament (tournament settings -> responsible persons), same rights as the organiser for the assigned tournaments, but cannot create tournaments. Public pages only name the organiser ("Organisationsleitung").
 - Evaluation ("Auswertung"): same rights as the organiser (create and edit tournaments, assign treasurers and evaluation); additionally up to 3 people can be assigned per tournament (tournament settings -> responsible persons). Public pages only name the owner of a tournament, never assigned evaluators.
 
 MASTER DATA CSV: licence number; first name; last name; club number; club name; state code; state name. Registration checks licence number, name AND club

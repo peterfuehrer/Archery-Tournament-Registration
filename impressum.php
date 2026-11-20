@@ -1,5 +1,5 @@
 <?php
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-16 */
 require __DIR__ . '/lib.php';
 page_head(t('Impressum'), '<a href="index.php">' . e(t('Zur Anmeldung')) . '</a>');
 $tx = trim(setting('impressum'));

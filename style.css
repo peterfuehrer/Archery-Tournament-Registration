@@ -1,4 +1,4 @@
-/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-7 */
+/* Turnier-Anmeldeplattform für ianseo – Copyright (C) 2026 Peter Führer – GNU AGPLv3 (OSI-approved), siehe LICENSE – Version 2026.11.15-16 */
 :root{--petrol:#005f6a;--petrol-d:#00464f;--petrol-l:#e3f1f3;--ink:#293133;--mut:#5b6669;--bg:#f0f4f5;--card:#fff;--line:#d3dcde;--ok:#1f7a4d;--err:#b3261e}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -204,7 +204,7 @@ details.sect>summary:hover{background:var(--petrol-l)}
 .box>p:first-child{margin-top:0}
 @media(max-width:700px){details.sect>summary{padding:.8rem 1rem}.sect-body{padding:.1rem .9rem 1rem}h2::after{width:44px}}
 
-/* Backend: Filterleiste, Statistik, Rundmail */
+/* Backend: Filterleiste, Statistik, Rundmail / filter bar, statistics, bulk mail */
 .filt{display:flex;flex-wrap:wrap;gap:.6rem .8rem;align-items:flex-end}
 .filt label{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;color:var(--mut)}
 .filt label.grow{flex:1 1 220px}
